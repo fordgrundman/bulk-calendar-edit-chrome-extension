@@ -11,8 +11,8 @@ document.addEventListener("mousedown", (e) => {
 
     selectionBox = document.createElement("div");
     selectionBox.style.position = "absolute";
-    selectionBox.style.border = "2px dashed #4A90E2";
-    selectionBox.style.backgroundColor = "rgba(74, 144, 226, 0.2)";
+    selectionBox.style.border = "2px dashed red";
+    selectionBox.style.backgroundColor = "rgba(226, 74, 74, 0.2)";
     selectionBox.style.left = `${startX}px`;
     selectionBox.style.top = `${startY}px`;
     selectionBox.style.pointerEvents = "none"; //dont block clicks
@@ -36,10 +36,25 @@ document.addEventListener("mousemove", (e) => {
   selectionBox.style.height = `${height}px`;
 });
 
+//check for calendar event box overlap with selection box
+function isOverlapping(a, b) {
+  return (
+    a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom
+  );
+}
+
 document.addEventListener("mouseup", (e) => {
   if (isSelecting) {
     isSelecting = false;
-    //here check whats inside box
+    const rect = selectionBox.getBoundingClientRect();
+
+    const events = document.querySelectorAll('[role="button"][data-eventid]');
+    events.forEach((event) => {
+      const eventRect = event.getBoundingClientRect();
+      if (!isOverlapping(rect, eventRect)) {
+        event.style.backgroundColor = "red"; //red highlight on selected event boxes
+      }
+    });
 
     selectionBox.remove();
     selectionBox = null;
