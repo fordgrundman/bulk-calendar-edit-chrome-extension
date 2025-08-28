@@ -3,7 +3,7 @@ let startX, startY;
 let selectionBox;
 
 document.addEventListener("mousedown", (e) => {
-  if (e.button === 0 && e.shiftKey) {
+  if (e.button === 1 && e.shiftKey) {
     //leftClick + Shift
     isSelecting = true;
     startX = e.pageX;
@@ -25,6 +25,23 @@ document.addEventListener("mousedown", (e) => {
 
 document.addEventListener("mousemove", (e) => {
   if (!isSelecting) return;
-  const x = Math.min(e.pageX, startX); //handle cases where drag in "opposite" of expected drag direction
-  const y = Math.min(e.pageY);
+  const x = Math.min(e.pageX, startX); //min handle cases where drag in "opposite" of expected drag direction
+  const y = Math.min(e.pageY, startY);
+  const width = Math.abs(e.pageX - startX); //abs: if drag in a certain way where width would calc to be negative, make it pos
+  const height = Math.abs(e.pageY - startY); //distance is minus
+
+  selectionBox.style.left = `${x}px`;
+  selectionBox.style.top = `${y}px`;
+  selectionBox.style.width = `${width}px`;
+  selectionBox.style.height = `${height}px`;
+});
+
+document.addEventListener("mouseup", (e) => {
+  if (isSelecting) {
+    isSelecting = false;
+    //here check whats inside box
+
+    selectionBox.remove();
+    selectionBox = null;
+  }
 });
