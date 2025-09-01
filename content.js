@@ -2,6 +2,16 @@ let isSelecting = false;
 let startX, startY;
 let selectionBox;
 
+let selected = [];
+
+let header = document.querySelector("header");
+let headerMid = header.querySelector(":scope > :nth-child(2) > :nth-child(2)");
+let newElem = document.createElement("div");
+newElem.textContent = "text";
+
+//PUT THE TOOLBAR FOR EXTENSION HERE AS NEW ELEM
+headerMid.insertBefore(newElem, headerMid.children[1]); //insert before 2nd child
+
 document.addEventListener("mousedown", (e) => {
   if (e.button === 1 && e.shiftKey) {
     //leftClick + Shift
@@ -39,7 +49,7 @@ document.addEventListener("mousemove", (e) => {
 //check for calendar event box overlap with selection box
 function isOverlapping(a, b) {
   return (
-    a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
   );
 }
 
@@ -48,11 +58,33 @@ document.addEventListener("mouseup", (e) => {
     isSelecting = false;
     const rect = selectionBox.getBoundingClientRect();
 
-    const events = document.querySelectorAll('[role="button"][data-eventid]');
-    events.forEach((event) => {
-      const eventRect = event.getBoundingClientRect();
-      if (!isOverlapping(rect, eventRect)) {
-        event.style.backgroundColor = "red"; //red highlight on selected event boxes
+    const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+    //get og bg color
+    const originalBgColors = new Map();
+    gcEvents.forEach((evnt) => {
+      originalBgColors.set(evnt, evnt.style.backgroundColor);
+    });
+
+    console.log(originalBgColors);
+
+    gcEvents.forEach((evnt) => {
+      const eventRect = evnt.getBoundingClientRect();
+      //check if selected already
+      const isEventSelected = evnt.classList.contains("gc-bulk-selected");
+      if (isOverlapping(rect, eventRect)) {
+        if (!isEventSelected) {
+          evnt.style.backgroundColor = "red"; //red highlight on selected event boxes
+          selected.push(evnt);
+          evnt.classList.add("gc-bulk-selected");
+          console.log("selected: ", evnt);
+        } else {
+          console.log("unselected: ", evnt);
+          evnt.style.backgroundColor = evnt.style.borderColor;
+          selected = selected.filter((filterEvent) => {
+            return evnt != filterEvent;
+          });
+          evnt.classList.remove("gc-bulk-selected");
+        }
       }
     });
 
@@ -60,3 +92,5 @@ document.addEventListener("mouseup", (e) => {
     selectionBox = null;
   }
 });
+
+//note that each step of a google calendar upwards is 12px in styling, and 15 minutes.
