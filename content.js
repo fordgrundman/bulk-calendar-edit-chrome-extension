@@ -65,28 +65,35 @@ document.addEventListener("mouseup", (e) => {
       originalBgColors.set(evnt, evnt.style.backgroundColor);
     });
 
-    console.log(originalBgColors);
+    let ids = [];
 
     gcEvents.forEach((evnt) => {
       const eventRect = evnt.getBoundingClientRect();
       //check if selected already
       const isEventSelected = evnt.classList.contains("gc-bulk-selected");
       if (isOverlapping(rect, eventRect)) {
+        const id = evnt.getAttribute("data-eventid");
         if (!isEventSelected) {
+          console.log("selected: ", id);
           evnt.style.backgroundColor = "red"; //red highlight on selected event boxes
           selected.push(evnt);
+          ids.push(id);
           evnt.classList.add("gc-bulk-selected");
-          console.log("selected: ", evnt);
         } else {
-          console.log("unselected: ", evnt);
+          console.log("unselected: ", id);
           evnt.style.backgroundColor = evnt.style.borderColor;
           selected = selected.filter((filterEvent) => {
             return evnt != filterEvent;
+          });
+          ids = ids.filter((filterId) => {
+            return id != filterId;
           });
           evnt.classList.remove("gc-bulk-selected");
         }
       }
     });
+
+    console.log(selected);
 
     selectionBox.remove();
     selectionBox = null;
@@ -94,3 +101,4 @@ document.addEventListener("mouseup", (e) => {
 });
 
 //note that each step of a google calendar upwards is 12px in styling, and 15 minutes.
+//event id is in the html
