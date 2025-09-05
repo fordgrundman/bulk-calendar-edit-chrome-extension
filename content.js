@@ -12,6 +12,7 @@ newElem.textContent = "text";
 //PUT THE TOOLBAR FOR EXTENSION HERE AS NEW ELEM
 headerMid.insertBefore(newElem, headerMid.children[1]); //insert before 2nd child
 
+//Marque Selection Box Creation
 document.addEventListener("mousedown", (e) => {
   if (e.button === 1 && e.shiftKey) {
     //leftClick + Shift
@@ -33,6 +34,7 @@ document.addEventListener("mousedown", (e) => {
   }
 });
 
+//Marque Selection Box Drag Behavior
 document.addEventListener("mousemove", (e) => {
   if (!isSelecting) return;
   const x = Math.min(e.pageX, startX); //min handle cases where drag in "opposite" of expected drag direction
@@ -59,28 +61,30 @@ document.addEventListener("mouseup", (e) => {
     const rect = selectionBox.getBoundingClientRect();
 
     const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
-    //get og bg color
+
+    //get the original background color of an event so we can restore it after unselection
     const originalBgColors = new Map();
     gcEvents.forEach((evnt) => {
       originalBgColors.set(evnt, evnt.style.backgroundColor);
     });
 
+    //collect the event ids for all the selected/relevant events
     let ids = [];
 
     gcEvents.forEach((evnt) => {
       const eventRect = evnt.getBoundingClientRect();
+
       //check if selected already
       const isEventSelected = evnt.classList.contains("gc-bulk-selected");
+
       if (isOverlapping(rect, eventRect)) {
-        const id = evnt.getAttribute("data-eventid");
+        const id = evnt.getAttribute("data-eventid"); //get the google calendar event id
         if (!isEventSelected) {
-          console.log("selected: ", id);
-          evnt.style.backgroundColor = "red"; //red highlight on selected event boxes
+          evnt.style.backgroundColor = "red"; //red background color for selected event boxes
           selected.push(evnt);
           ids.push(id);
           evnt.classList.add("gc-bulk-selected");
         } else {
-          console.log("unselected: ", id);
           evnt.style.backgroundColor = evnt.style.borderColor;
           selected = selected.filter((filterEvent) => {
             return evnt != filterEvent;
