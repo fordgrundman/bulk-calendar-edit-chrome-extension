@@ -1,108 +1,123 @@
+//===== STATE & CONFIG =====
 let isSelecting = false;
 let startX, startY;
 let selectionBox;
-
 let selected = [];
 
-let header = document.querySelector("header");
-let headerMid = header.querySelector(":scope > :nth-child(2) > :nth-child(2)");
-let newElem = document.createElement("div");
-newElem.textContent = "text";
+//===== UTILITY FUNCTIONS =====
+function isOverlapping(rectA, rectB) {
+  return (
+    rectA.left < rectB.right &&
+    rectA.right > rectB.left &&
+    rectA.top < rectB.bottom &&
+    rectA.bottom > rectB.top
+  );
+}
 
-//PUT THE TOOLBAR FOR EXTENSION HERE AS NEW ELEM
-headerMid.insertBefore(newElem, headerMid.children[1]); //insert before 2nd child
+//===== MAIN SELECTION FUNCTIONS =====
+function startMarqueeSelection(e) {
+  isSelecting = true;
+  startX = e.pageX;
+  startY = e.pageY;
 
-//Marque Selection Box Creation
-document.addEventListener("mousedown", (e) => {
-  if (e.button === 1 && e.shiftKey) {
-    //leftClick + Shift
-    isSelecting = true;
-    startX = e.pageX;
-    startY = e.pageY;
+  //Create selection box
+  selectionBox = document.createElement("div");
+  selectionBox.style.position = "absolute";
+  selectionBox.style.border = "2px dashed red";
+  selectionBox.style.backgroundColor = "rgba(226, 74, 74, 0.2)";
+  selectionBox.style.left = `${startX}px`;
+  selectionBox.style.top = `${startY}px`;
+  selectionBox.style.pointerEvents = "none";
+  selectionBox.style.zIndex = "999999";
+  document.body.appendChild(selectionBox);
 
-    selectionBox = document.createElement("div");
-    selectionBox.style.position = "absolute";
-    selectionBox.style.border = "2px dashed red";
-    selectionBox.style.backgroundColor = "rgba(226, 74, 74, 0.2)";
-    selectionBox.style.left = `${startX}px`;
-    selectionBox.style.top = `${startY}px`;
-    selectionBox.style.pointerEvents = "none"; //dont block clicks
-    selectionBox.style.zindex = 999999;
-    document.body.appendChild(selectionBox);
+  e.preventDefault();
+}
 
-    e.preventDefault();
-  }
-});
-
-//Marque Selection Box Drag Behavior
-document.addEventListener("mousemove", (e) => {
+function updateSelectionBox(e) {
   if (!isSelecting) return;
-  const x = Math.min(e.pageX, startX); //min handle cases where drag in "opposite" of expected drag direction
+
+  const x = Math.min(e.pageX, startX);
   const y = Math.min(e.pageY, startY);
-  const width = Math.abs(e.pageX - startX); //abs: if drag in a certain way where width would calc to be negative, make it pos
-  const height = Math.abs(e.pageY - startY); //distance is minus
+  const width = Math.abs(e.pageX - startX);
+  const height = Math.abs(e.pageY - startY);
 
   selectionBox.style.left = `${x}px`;
   selectionBox.style.top = `${y}px`;
   selectionBox.style.width = `${width}px`;
   selectionBox.style.height = `${height}px`;
-});
-
-//check for calendar event box overlap with selection box
-function isOverlapping(a, b) {
-  return (
-    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-  );
 }
 
-document.addEventListener("mouseup", (e) => {
-  if (isSelecting) {
-    isSelecting = false;
-    const rect = selectionBox.getBoundingClientRect();
+function finishMarqueeSelection() {
+  isSelecting = false;
+  const rect = selectionBox.getBoundingClientRect();
 
-    const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+  //Process event selection
+  const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
-    //get the original background color of an event so we can restore it after unselection
-    const originalBgColors = new Map();
-    gcEvents.forEach((evnt) => {
-      originalBgColors.set(evnt, evnt.style.backgroundColor);
-    });
+  gcEvents.forEach((event) => {
+    const eventRect = event.getBoundingClientRect();
+    const isEventSelected = event.classList.contains("gc-bulk-selected");
 
-    //collect the event ids for all the selected/relevant events
-    let ids = [];
+    if (isOverlapping(rect, eventRect)) {
+      const eventId = event.getAttribute("data-eventid");
 
-    gcEvents.forEach((evnt) => {
-      const eventRect = evnt.getBoundingClientRect();
-
-      //check if selected already
-      const isEventSelected = evnt.classList.contains("gc-bulk-selected");
-
-      if (isOverlapping(rect, eventRect)) {
-        const id = evnt.getAttribute("data-eventid"); //get the google calendar event id
-        if (!isEventSelected) {
-          evnt.style.backgroundColor = "red"; //red background color for selected event boxes
-          selected.push(evnt);
-          ids.push(id);
-          evnt.classList.add("gc-bulk-selected");
-        } else {
-          evnt.style.backgroundColor = evnt.style.borderColor;
-          selected = selected.filter((filterEvent) => {
-            return evnt != filterEvent;
-          });
-          ids = ids.filter((filterId) => {
-            return id != filterId;
-          });
-          evnt.classList.remove("gc-bulk-selected");
-        }
+      if (!isEventSelected) {
+        //Select event
+        event.style.backgroundColor = "red";
+        selected.push(event);
+        event.classList.add("gc-bulk-selected");
+      } else {
+        //Deselect event
+        event.style.backgroundColor = event.style.borderColor;
+        selected = selected.filter((filterEvent) => filterEvent !== event);
+        event.classList.remove("gc-bulk-selected");
       }
-    });
+    }
+  });
 
-    console.log(selected);
+  console.log(selected);
 
-    selectionBox.remove();
-    selectionBox = null;
+  selectionBox.remove();
+  selectionBox = null;
+}
+
+//===== EVENT HANDLERS & INITIALIZATION =====
+function handleMouseDown(e) {
+  if (e.button === 1 && e.shiftKey) {
+    //Middle click + Shift
+    startMarqueeSelection(e);
   }
-});
+}
 
-//note that each step of a google calendar upwards is 12px in styling, and 15 minutes.
-//event id is in the html
+function handleMouseMove(e) {
+  updateSelectionBox(e);
+}
+
+function handleMouseUp(e) {
+  if (isSelecting) {
+    finishMarqueeSelection();
+  }
+}
+
+function initializeExtension() {
+  //Create toolbar element
+  const header = document.querySelector("header");
+  const headerMid = header.querySelector(
+    ":scope > :nth-child(2) > :nth-child(2)"
+  );
+  const newElem = document.createElement("div");
+  newElem.textContent = "text";
+  headerMid.insertBefore(newElem, headerMid.children[1]);
+
+  //Attach event listeners
+  document.addEventListener("mousedown", handleMouseDown);
+  document.addEventListener("mousemove", handleMouseMove);
+  document.addEventListener("mouseup", handleMouseUp);
+}
+
+//Start the extension
+initializeExtension();
+
+//Note: Each step of a google calendar upwards is 12px in styling, and 15 minutes.
+//Event id is in the html
