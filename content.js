@@ -83,6 +83,7 @@ function finishMarqueeSelection() {
 }
 
 //===== EVENT HANDLERS & INITIALIZATION =====
+
 function handleMouseDown(e) {
   if (e.button === 1 && e.shiftKey) {
     //Middle click + Shift
@@ -118,6 +119,3 @@ function initializeExtension() {
 
 //Start the extension
 initializeExtension();
-
-//Note: Each step of a google calendar upwards is 12px in styling, and 15 minutes.
-//Event id is in the html
