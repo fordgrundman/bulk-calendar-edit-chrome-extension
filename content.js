@@ -14,6 +14,26 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
+//===== DRAG DETECTION =====
+function checkForEventDrag(e) {
+  //only check if not alr selecting
+  if (isSelecting) return false;
+
+  //find the event element under the mouse
+  const eventElement = e.target.closest('[role="button"][data-eventid]');
+  if (!eventElement) return false;
+
+  const eventId = eventElement.getAttribute("data-eventid");
+
+  //check if this event is selected
+  if (selected.includes(eventId)) {
+    isDragging = true;
+    draggedEventId = eventId;
+    dragStartX = e.pageX;
+    dragStartY = e.pageY;
+  }
+}
+
 //===== MAIN SELECTION FUNCTIONS =====
 function startMarqueeSelection(e) {
   isSelecting = true;
@@ -65,18 +85,20 @@ function finishMarqueeSelection() {
       if (!isEventSelected) {
         //Select event
         event.style.backgroundColor = "red";
-        selected.push(event);
+        selectedIds.push(eventId);
         event.classList.add("gc-bulk-selected");
       } else {
         //Deselect event
         event.style.backgroundColor = event.style.borderColor;
-        selected = selected.filter((filterEvent) => filterEvent !== event);
+        selectedIds = selected.filter(
+          (filterEventId) => filterEventId !== eventId
+        );
         event.classList.remove("gc-bulk-selected");
       }
     }
   });
 
-  console.log(selected);
+  console.log(selectedIds);
 
   selectionBox.remove();
   selectionBox = null;

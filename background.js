@@ -16,15 +16,15 @@ async function getAuthToken(interactive = true) {
 }
 
 //listen for messages from popup.js
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === "AUTH") {
-    getAuthToken(true)
-      .then((token) => {
-        sendResponse({ token });
-      })
-      .catch((err) => {
-        sendResponse({ error: err.message || err });
-      });
-    return true; //keep message channel open for async
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === "AUTH") {
+    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ token: token });
+      }
+    });
+    return true; // Keep the message channel open for async response
   }
 });

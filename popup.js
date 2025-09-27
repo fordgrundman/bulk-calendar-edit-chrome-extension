@@ -2,6 +2,12 @@ document.getElementById("signin").addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: "AUTH" }, (response) => {
     const output = document.getElementById("output");
 
+    // Check if response exists first
+    if (!response) {
+      output.textContent = "No response from background script";
+      return;
+    }
+
     if (response.error) {
       output.textContent = "Auth failed: " + response.error;
       return;
