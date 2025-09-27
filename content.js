@@ -6,6 +6,7 @@ let selected = [];
 let isKeyboardSelecting = false;
 let ctrlPressed = false;
 let keyPressed = false;
+let shiftPressed = false;
 
 //===== UTILITY FUNCTIONS =====
 function isOverlapping(rectA, rectB) {
@@ -139,6 +140,16 @@ function handleKeyDown(e) {
     keyPressed = true;
   }
 
+  if (e.key === "Shift") {
+    shiftPressed = true;
+  }
+
+  //handle shift + b for moving events forward 15 minutes (test)
+  if (shiftPressed && e.key.toLowerCase() === "b" && selected.length > 0) {
+    moveSelectedEventsForward();
+    e.preventDefault();
+  }
+
   // Handle Ctrl + Z - only start if not already selecting
   if (ctrlPressed && keyPressed && !isKeyboardSelecting && !isSelecting) {
     isKeyboardSelecting = true;
@@ -161,11 +172,120 @@ function handleKeyUp(e) {
   if (e.key === "z") {
     keyPressed = false;
   }
+  if (e.key === "Shift") {
+    shiftPressed = false;
+  }
 
   // Handle Ctrl + Z release - finish selection when either key is released
   if (isKeyboardSelecting && (!ctrlPressed || !keyPressed)) {
     finishMarqueeSelection();
   }
+}
+
+//function to move events forward
+async function moveSelectedEventsForward() {
+  if (selected.length === 0) {
+    console.log("NO events selected");
+    return;
+  }
+
+  //check if authenticated before making API calls
+  const authResponse = await chrome.runtime.sendMessage({
+    type: "GET_AUTH_TOKEN",
+  });
+
+  if (!authResponse.authenticated) {
+    console.error("User not authenticated");
+    alert("Please sign in first to move events");
+    return;
+  }
+
+  const token = authResponse.token;
+  console.log(`Moving ${selected.length} events forward by 15 minutes...`); // Fix: Use backticks for template literal
+
+  for (const eventId of selected) {
+    try {
+      //get event details
+      const eventResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!eventResponse.ok) {
+        console.error(
+          `Failed to fetch event ${eventId}:`,
+          eventResponse.statusText
+        );
+        continue;
+      }
+
+      const event = await eventResponse.json();
+
+      //calc new times (add 15 minutes for test)
+      const startTime = new Date(event.start.dateTime || event.start.date);
+      const endTime = new Date(event.end.dateTime || event.end.date);
+
+      startTime.setMinutes(startTime.getMinutes() + 15);
+      endTime.setMinutes(endTime.getMinutes() + 15);
+
+      //update event - Fix: Create proper updated event object
+      const updatedEvent = {
+        ...event,
+        start: {
+          ...event.start,
+          dateTime: event.start.dateTime ? startTime.toISOString() : undefined,
+          date:
+            event.start.date && !event.start.dateTime
+              ? startTime.toISOString().split("T")[0]
+              : undefined,
+        },
+        end: {
+          ...event.end,
+          dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
+          date:
+            event.end.date && !event.end.dateTime
+              ? endTime.toISOString().split("T")[0]
+              : undefined,
+        },
+      };
+
+      // Fix: Actually send the PUT request to update the event
+      const updateResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updatedEvent),
+        }
+      );
+
+      if (updateResponse.ok) {
+        console.log(
+          `Successfully moved event ${eventId} forward by 15 minutes`
+        );
+      } else {
+        console.error(
+          `Failed to update event ${eventId}:`,
+          updateResponse.statusText
+        );
+      }
+    } catch (error) {
+      // Fix: Add catch block for try
+      console.error(`Error processing event ${eventId}:`, error);
+    }
+  } // Fix: Move the closing brace for the for loop here
+
+  //refresh page to see changes - Fix: Move this outside the loop
+  console.log("refreshing to show updated events");
+  window.location.reload();
 }
 
 function handleMouseMove(e) {
