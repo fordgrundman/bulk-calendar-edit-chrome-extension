@@ -3,6 +3,9 @@ let isSelecting = false;
 let startX, startY;
 let selectionBox;
 let selected = [];
+let isKeyboardSelecting = false;
+let ctrlPressed = false;
+let keyPressed = false;
 
 //===== UTILITY FUNCTIONS =====
 function isOverlapping(rectA, rectB) {
@@ -36,6 +39,12 @@ function checkForEventDrag(e) {
 
 //===== MAIN SELECTION FUNCTIONS =====
 function startMarqueeSelection(e) {
+  // Clear any existing selection box first
+  if (selectionBox) {
+    selectionBox.remove();
+    selectionBox = null;
+  }
+
   isSelecting = true;
   startX = e.pageX;
   startY = e.pageY;
@@ -69,7 +78,15 @@ function updateSelectionBox(e) {
 }
 
 function finishMarqueeSelection() {
+  if (!isSelecting) return; // Prevent multiple calls
+
   isSelecting = false;
+  isKeyboardSelecting = false; // Reset keyboard selection state
+  ctrlPressed = false; // Reset key states
+  keyPressed = false;
+
+  if (!selectionBox) return; // Safety check
+
   const rect = selectionBox.getBoundingClientRect();
 
   //Process event selection
@@ -85,12 +102,12 @@ function finishMarqueeSelection() {
       if (!isEventSelected) {
         //Select event
         event.style.backgroundColor = "red";
-        selectedIds.push(eventId);
+        selected.push(eventId);
         event.classList.add("gc-bulk-selected");
       } else {
         //Deselect event
         event.style.backgroundColor = event.style.borderColor;
-        selectedIds = selected.filter(
+        selected = selected.filter(
           (filterEventId) => filterEventId !== eventId
         );
         event.classList.remove("gc-bulk-selected");
@@ -98,7 +115,7 @@ function finishMarqueeSelection() {
     }
   });
 
-  console.log(selectedIds);
+  console.log(selected);
 
   selectionBox.remove();
   selectionBox = null;
@@ -107,18 +124,60 @@ function finishMarqueeSelection() {
 //===== EVENT HANDLERS & INITIALIZATION =====
 
 function handleMouseDown(e) {
+  // Only handle middle click + shift here
   if (e.button === 1 && e.shiftKey) {
-    //Middle click + Shift
     startMarqueeSelection(e);
   }
 }
 
+function handleKeyDown(e) {
+  // Track key states
+  if (e.key === "Control") {
+    ctrlPressed = true;
+  }
+  if (e.key === "z") {
+    keyPressed = true;
+  }
+
+  // Handle Ctrl + Z - only start if not already selecting
+  if (ctrlPressed && keyPressed && !isKeyboardSelecting && !isSelecting) {
+    isKeyboardSelecting = true;
+
+    // Create fake mouse event at center of screen or last mouse position
+    const fakeEvent = {
+      pageX: window.lastMouseX || window.innerWidth / 2,
+      pageY: window.lastMouseY || window.innerHeight / 2,
+      preventDefault: () => e.preventDefault(),
+    };
+    startMarqueeSelection(fakeEvent);
+    e.preventDefault();
+  }
+}
+function handleKeyUp(e) {
+  // Track key releases
+  if (e.key === "Control") {
+    ctrlPressed = false;
+  }
+  if (e.key === "z") {
+    keyPressed = false;
+  }
+
+  // Handle Ctrl + Z release - finish selection when either key is released
+  if (isKeyboardSelecting && (!ctrlPressed || !keyPressed)) {
+    finishMarqueeSelection();
+  }
+}
+
 function handleMouseMove(e) {
+  // Track mouse position for Ctrl+V
+  window.lastMouseX = e.pageX;
+  window.lastMouseY = e.pageY;
+
   updateSelectionBox(e);
 }
 
 function handleMouseUp(e) {
-  if (isSelecting) {
+  if (isSelecting && !isKeyboardSelecting) {
     finishMarqueeSelection();
   }
 }
@@ -137,6 +196,8 @@ function initializeExtension() {
   document.addEventListener("mousedown", handleMouseDown);
   document.addEventListener("mousemove", handleMouseMove);
   document.addEventListener("mouseup", handleMouseUp);
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("keyup", handleKeyUp); // Added keyup listener
 }
 
 //Start the extension
