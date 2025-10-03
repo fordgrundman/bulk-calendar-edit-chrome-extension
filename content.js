@@ -142,13 +142,6 @@ function handleKeyDown(e) {
   // Handle Ctrl + Z - only start if not already selecting
   if (ctrlPressed && keyPressed && !isKeyboardSelecting && !isSelecting) {
     isKeyboardSelecting = true;
-
-    // Create fake mouse event at center of screen or last mouse position
-    const fakeEvent = {
-      pageX: window.lastMouseX || window.innerWidth / 2,
-      pageY: window.lastMouseY || window.innerHeight / 2,
-      preventDefault: () => e.preventDefault(),
-    };
     startMarqueeSelection(fakeEvent);
     e.preventDefault();
   }
@@ -169,7 +162,7 @@ function handleKeyUp(e) {
 }
 
 function handleMouseMove(e) {
-  // Track mouse position for Ctrl+V
+  // Track mouse position for Ctrl+Z
   window.lastMouseX = e.pageX;
   window.lastMouseY = e.pageY;
 

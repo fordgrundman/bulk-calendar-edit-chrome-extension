@@ -1,32 +1,22 @@
-document.getElementById("signin").addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "AUTH" }, (response) => {
-    const output = document.getElementById("output");
+document.getElementById("listevents").addEventListener("click", () => {
+  chrome.identity.getAuthToken({ interactive: false }, function (token) {
+    console.log("TOKEN: ", token);
 
-    // Check if response exists first
-    if (!response) {
-      output.textContent = "No response from background script";
-      return;
-    }
+    const headers = new Headers({
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json",
+    });
 
-    if (response.error) {
-      output.textContent = "Auth failed: " + response.error;
-      return;
-    }
+    const queryParams = { headers };
 
-    const token = response.token;
-    output.textContent = "Got token: " + token;
-
-    //Example API CALL: list calendars
-    fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
-      headers: { Authorization: "Bearer " + token },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        output.textContent +=
-          "\n\nCalendars:\n" + JSON.stringify(data, null, 2);
-      })
-      .catch((err) => {
-        output.textContent += "\n\nError calling API: " + err;
+    fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      queryParams
+    )
+      .then((response) => response.json()) // Transform the data into json
+      .then(function (data) {
+        console.log("DATA: ", data);
+        // do whatever you need with the data!
       });
   });
 });
