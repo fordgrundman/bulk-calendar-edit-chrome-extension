@@ -92,12 +92,26 @@ function finishMarqueeSelection() {
   //Process event selection
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
-  gcEvents.forEach((event) => {
+  gcEvents.forEach((event, index) => {
     const eventRect = event.getBoundingClientRect();
     const isEventSelected = event.classList.contains("gc-bulk-selected");
 
     if (isOverlapping(rect, eventRect)) {
-      const eventId = event.getAttribute("data-eventid");
+      const jslogAttr = event.getAttribute("jslog");
+
+      if (!jslogAttr) {
+        return;
+      }
+
+      //look for pattern: eventId embedded in jslog
+      const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+      const eventId = match ? match[1] : null;
+
+      console.log("🆔 Extracted eventId:", eventId);
+
+      if (!eventId) {
+        return; //skip if no id found
+      }
 
       if (!isEventSelected) {
         //Select event
@@ -114,8 +128,6 @@ function finishMarqueeSelection() {
       }
     }
   });
-
-  console.log(selected);
 
   selectionBox.remove();
   selectionBox = null;
@@ -142,7 +154,7 @@ function handleKeyDown(e) {
   // Handle Ctrl + Z - only start if not already selecting
   if (ctrlPressed && keyPressed && !isKeyboardSelecting && !isSelecting) {
     isKeyboardSelecting = true;
-    startMarqueeSelection(fakeEvent);
+    startMarqueeSelection(e);
     e.preventDefault();
   }
 }
