@@ -5,7 +5,9 @@ let selectionBox;
 let selected = [];
 let isKeyboardSelecting = false;
 let ctrlPressed = false;
-let keyPressed = false;
+let zPressed = false;
+let shiftPressed = false;
+let bPressed = false;
 
 //===== UTILITY FUNCTIONS =====
 function isOverlapping(rectA, rectB) {
@@ -83,7 +85,7 @@ function finishMarqueeSelection() {
   isSelecting = false;
   isKeyboardSelecting = false; // Reset keyboard selection state
   ctrlPressed = false; // Reset key states
-  keyPressed = false;
+  zPressed = false;
 
   if (!selectionBox) return; // Safety check
 
@@ -135,6 +137,24 @@ function finishMarqueeSelection() {
 
 //===== EVENT HANDLERS & INITIALIZATION =====
 
+function initializeExtension() {
+  //Create toolbar element
+  const header = document.querySelector("header");
+  const headerMid = header.querySelector(
+    ":scope > :nth-child(2) > :nth-child(2)"
+  );
+  const newElem = document.createElement("div");
+  newElem.textContent = "text";
+  headerMid.insertBefore(newElem, headerMid.children[1]);
+
+  //Attach event listeners
+  document.addEventListener("mousedown", handleMouseDown);
+  document.addEventListener("mousemove", handleMouseMove);
+  document.addEventListener("mouseup", handleMouseUp);
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("keyup", handleKeyUp); // Added keyup listener
+}
+
 function handleMouseDown(e) {
   // Only handle middle click + shift here
   if (e.button === 1 && e.shiftKey) {
@@ -148,13 +168,27 @@ function handleKeyDown(e) {
     ctrlPressed = true;
   }
   if (e.key === "z") {
-    keyPressed = true;
+    zPressed = true;
   }
 
   // Handle Ctrl + Z - only start if not already selecting
-  if (ctrlPressed && keyPressed && !isKeyboardSelecting && !isSelecting) {
+  if (ctrlPressed && zPressed && !isKeyboardSelecting && !isSelecting) {
     isKeyboardSelecting = true;
     startMarqueeSelection(e);
+    e.preventDefault();
+  }
+
+  if (e.key === "Shift") {
+    shiftPressed = true;
+  }
+
+  if (e.key === "b" || e.key === "B") {
+    bPressed = true;
+  }
+
+  //handle test combo to move selected events forward by 15 minutes
+  if (shiftPressed && bPressed && selected.length > 0) {
+    moveSelectedEventsForward();
     e.preventDefault();
   }
 }
@@ -164,11 +198,19 @@ function handleKeyUp(e) {
     ctrlPressed = false;
   }
   if (e.key === "z") {
-    keyPressed = false;
+    zPressed = false;
+  }
+
+  if (e.key === "Shift") {
+    shiftPressed = false;
+  }
+
+  if (e.key === "b") {
+    bPressed = false;
   }
 
   // Handle Ctrl + Z release - finish selection when either key is released
-  if (isKeyboardSelecting && (!ctrlPressed || !keyPressed)) {
+  if (isKeyboardSelecting && (!ctrlPressed || !zPressed)) {
     finishMarqueeSelection();
   }
 }
@@ -187,22 +229,109 @@ function handleMouseUp(e) {
   }
 }
 
-function initializeExtension() {
-  //Create toolbar element
-  const header = document.querySelector("header");
-  const headerMid = header.querySelector(
-    ":scope > :nth-child(2) > :nth-child(2)"
-  );
-  const newElem = document.createElement("div");
-  newElem.textContent = "text";
-  headerMid.insertBefore(newElem, headerMid.children[1]);
+// Add this function after your existing functions
+async function moveSelectedEventsForward() {
+  if (selected.length === 0) {
+    console.log("No events selected");
+    return;
+  }
 
-  //Attach event listeners
-  document.addEventListener("mousedown", handleMouseDown);
-  document.addEventListener("mousemove", handleMouseMove);
-  document.addEventListener("mouseup", handleMouseUp);
-  document.addEventListener("keydown", handleKeyDown);
-  document.addEventListener("keyup", handleKeyUp); // Added keyup listener
+  // Get auth token
+  const authResponse = await chrome.runtime.sendMessage({
+    type: "GET_AUTH_TOKEN",
+  });
+
+  if (!authResponse.authenticated) {
+    console.error("User not authenticated");
+    alert("Please sign in first to move events");
+    return;
+  }
+
+  const token = authResponse.token;
+  console.log(`Moving ${selected.length} events forward by 15 minutes...`);
+
+  for (const eventId of selected) {
+    try {
+      // Get event details
+      const eventResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!eventResponse.ok) {
+        console.error(
+          `Failed to fetch event ${eventId}:`,
+          eventResponse.statusText
+        );
+        continue;
+      }
+
+      const event = await eventResponse.json();
+
+      // Calculate new times (add 15 minutes)
+      const startTime = new Date(event.start.dateTime || event.start.date);
+      const endTime = new Date(event.end.dateTime || event.end.date);
+
+      startTime.setMinutes(startTime.getMinutes() + 15);
+      endTime.setMinutes(endTime.getMinutes() + 15);
+
+      // Update event
+      const updatedEvent = {
+        ...event,
+        start: {
+          ...event.start,
+          dateTime: event.start.dateTime ? startTime.toISOString() : undefined,
+          date:
+            event.start.date && !event.start.dateTime
+              ? startTime.toISOString().split("T")[0]
+              : undefined,
+        },
+        end: {
+          ...event.end,
+          dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
+          date:
+            event.end.date && !event.end.dateTime
+              ? endTime.toISOString().split("T")[0]
+              : undefined,
+        },
+      };
+
+      // Send update to Google Calendar
+      const updateResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updatedEvent),
+        }
+      );
+
+      if (updateResponse.ok) {
+        console.log(
+          `Successfully moved event ${eventId} forward by 15 minutes`
+        );
+      } else {
+        console.error(
+          `Failed to update event ${eventId}:`,
+          updateResponse.statusText
+        );
+      }
+    } catch (error) {
+      console.error(`Error processing event ${eventId}:`, error);
+    }
+  }
+
+  // Refresh the page to see changes
+  console.log("Refreshing page to show updated events...");
+  window.location.reload();
 }
 
 //Start the extension
