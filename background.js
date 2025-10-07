@@ -8,6 +8,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           error: chrome.runtime.lastError.message,
         });
       } else if (token) {
+        //authenticate the token and approve content scripts requests
         sendResponse({ authenticated: true, token: token });
       } else {
         sendResponse({ authenticated: false, error: "No token received" });

@@ -9,6 +9,11 @@ let zPressed = false;
 let shiftPressed = false;
 let bPressed = false;
 
+//drag bulk-move variables
+let isDragging = false;
+let dragStartY = 0;
+let draggedEventId = null;
+
 //===== UTILITY FUNCTIONS =====
 function isOverlapping(rectA, rectB) {
   return (
@@ -21,25 +26,39 @@ function isOverlapping(rectA, rectB) {
 
 //===== DRAG DETECTION =====
 function checkForEventDrag(e) {
-  //only check if not alr selecting
-  if (isSelecting) return false;
+  // Strict conditions: no selecting, no keyboard selecting, must have selected events
+  if (isSelecting || isKeyboardSelecting || selected.length === 0) {
+    console.log("Drag blocked:", {
+      isSelecting,
+      isKeyboardSelecting,
+      selectedCount: selected.length,
+    });
+    return false;
+  }
 
   //find the event element under the mouse
   const eventElement = e.target.closest('[role="button"][data-eventid]');
   if (!eventElement) return false;
 
-  const eventId = eventElement.getAttribute("data-eventid");
+  //extract google calendar api id from jslog
+  const jslogAttr = eventElement.getAttribute("jslog");
+  if (!jslogAttr) return false;
+
+  const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+  const eventId = match ? match[1] : null;
 
   //check if this event is selected
   if (selected.includes(eventId)) {
     isDragging = true;
     draggedEventId = eventId;
-    dragStartX = e.pageX;
     dragStartY = e.pageY;
+    console.log("✅ Started dragging selected event:", eventId);
+    console.log("Will move", selected.length, "events together");
+    return true;
   }
-}
 
-//===== MAIN SELECTION FUNCTIONS =====
+  return false;
+} //===== MAIN SELECTION FUNCTIONS =====
 function startMarqueeSelection(e) {
   // Clear any existing selection box first
   if (selectionBox) {
@@ -156,9 +175,33 @@ function initializeExtension() {
 }
 
 function handleMouseDown(e) {
-  // Only handle middle click + shift here
+  console.log("Mouse down:", {
+    button: e.button,
+    shiftKey: e.shiftKey,
+    isSelecting,
+    selectedCount: selected.length,
+  });
+
+  // Middle click + shift for marquee selection (highest priority)
   if (e.button === 1 && e.shiftKey) {
+    console.log("🔥 Starting marquee selection");
     startMarqueeSelection(e);
+    return;
+  }
+
+  // Left click - check for drag on selected events ONLY if not selecting and we have selected events
+  if (
+    e.button === 0 &&
+    !isSelecting &&
+    !isKeyboardSelecting &&
+    selected.length > 0
+  ) {
+    console.log("🔍 Checking for drag on left click");
+    if (checkForEventDrag(e)) {
+      console.log("🎯 Drag started, preventing default");
+      e.preventDefault();
+      return;
+    }
   }
 }
 
@@ -188,7 +231,7 @@ function handleKeyDown(e) {
 
   //handle test combo to move selected events forward by 15 minutes
   if (shiftPressed && bPressed && selected.length > 0) {
-    moveSelectedEventsForward();
+    moveSelectedEventsBySteps(1); // Move forward by 1 step (15 minutes)
     e.preventDefault();
   }
 }
@@ -205,7 +248,7 @@ function handleKeyUp(e) {
     shiftPressed = false;
   }
 
-  if (e.key === "b") {
+  if (e.key === "b" || e.key === "B") {
     bPressed = false;
   }
 
@@ -220,23 +263,59 @@ function handleMouseMove(e) {
   window.lastMouseX = e.pageX;
   window.lastMouseY = e.pageY;
 
+  // Handle dragging - prevent Google Calendar's default behavior
+  if (isDragging) {
+    document.body.style.cursor = "move";
+    e.preventDefault(); // Prevent Google Calendar's default drag behavior
+    return;
+  }
+
   updateSelectionBox(e);
 }
 
 function handleMouseUp(e) {
+  console.log("Mouse up:", { isDragging, isSelecting });
+
+  //handle drag completion
+  if (isDragging) {
+    const dragEndY = e.pageY;
+    const deltaY = dragEndY - dragStartY;
+
+    //calculate 15 minute steps (12px = 1 step)
+    const steps = Math.round(deltaY / 12);
+
+    console.log(
+      `🎯 Drag completed: ${deltaY}px = ${steps} steps (${steps * 15} minutes)`
+    );
+
+    if (steps !== 0) {
+      moveSelectedEventsBySteps(steps);
+    }
+
+    //reset drag state
+    isDragging = false;
+    draggedEventId = null;
+    document.body.style.cursor = "";
+    return;
+  }
+
   if (isSelecting && !isKeyboardSelecting) {
+    console.log("🔥 Finishing marquee selection");
     finishMarqueeSelection();
   }
 }
 
 // Add this function after your existing functions
-async function moveSelectedEventsForward() {
+async function moveSelectedEventsBySteps(steps) {
   if (selected.length === 0) {
     console.log("No events selected");
     return;
   }
 
-  // Get auth token
+  const minutes = steps * 15;
+  console.log(`Moving ${selected.length} events by ${minutes} minutes...`);
+
+  // Get auth token from background script
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
   });
@@ -248,7 +327,6 @@ async function moveSelectedEventsForward() {
   }
 
   const token = authResponse.token;
-  console.log(`Moving ${selected.length} events forward by 15 minutes...`);
 
   for (const eventId of selected) {
     try {
@@ -273,12 +351,12 @@ async function moveSelectedEventsForward() {
 
       const event = await eventResponse.json();
 
-      // Calculate new times (add 15 minutes)
+      // Calculate new times (add/subtract minutes)
       const startTime = new Date(event.start.dateTime || event.start.date);
       const endTime = new Date(event.end.dateTime || event.end.date);
 
-      startTime.setMinutes(startTime.getMinutes() + 15);
-      endTime.setMinutes(endTime.getMinutes() + 15);
+      startTime.setMinutes(startTime.getMinutes() + minutes);
+      endTime.setMinutes(endTime.getMinutes() + minutes);
 
       // Update event
       const updatedEvent = {
@@ -316,7 +394,7 @@ async function moveSelectedEventsForward() {
 
       if (updateResponse.ok) {
         console.log(
-          `Successfully moved event ${eventId} forward by 15 minutes`
+          `Successfully moved event ${eventId} by ${minutes} minutes`
         );
       } else {
         console.error(
