@@ -231,10 +231,135 @@ function handleKeyDown(e) {
 
   //handle test combo to move selected events forward by 15 minutes
   if (shiftPressed && bPressed && selected.length > 0) {
-    moveSelectedEventsBySteps(1); // Move forward by 1 step (15 minutes)
+    showMinutesInputDialog();
     e.preventDefault();
   }
 }
+// Add this function to show the input dialog
+function showMinutesInputDialog() {
+  // Create overlay
+  const overlay = document.createElement("div");
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+  `;
+
+  // Create dialog box
+  const dialog = document.createElement("div");
+  dialog.style.cssText = `
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-align: center;
+  `;
+
+  // Create label
+  const label = document.createElement("div");
+  label.textContent = `Move ${selected.length} event${
+    selected.length > 1 ? "s" : ""
+  } by how many minutes?`;
+  label.style.cssText = `
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #333;
+  `;
+
+  // Create input
+  const input = document.createElement("input");
+  input.type = "number";
+  input.placeholder = "Enter minutes (+ or -)";
+  input.style.cssText = `
+    width: 200px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+  `;
+
+  // Create buttons container
+  const buttonsDiv = document.createElement("div");
+  buttonsDiv.style.cssText = `
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  `;
+
+  // Create submit button
+  const submitBtn = document.createElement("button");
+  submitBtn.textContent = "Move Events";
+  submitBtn.style.cssText = `
+    padding: 8px 16px;
+    background: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  `;
+
+  // Create cancel button
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.style.cssText = `
+    padding: 8px 16px;
+    background: #f1f1f1;
+    color: #333;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  `;
+
+  // Handle submit
+  const handleSubmit = () => {
+    const minutes = parseInt(input.value);
+    if (!isNaN(minutes) && minutes !== 0) {
+      const steps = Math.round(minutes / 15);
+      moveSelectedEventsBySteps(steps);
+      document.body.removeChild(overlay);
+    }
+  };
+
+  // Handle cancel
+  const handleCancel = () => {
+    document.body.removeChild(overlay);
+  };
+
+  // Event listeners
+  submitBtn.addEventListener("click", handleSubmit);
+  cancelBtn.addEventListener("click", handleCancel);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleSubmit();
+    } else if (e.key === "Escape") {
+      handleCancel();
+    }
+  });
+
+  // Assemble dialog
+  buttonsDiv.appendChild(submitBtn);
+  buttonsDiv.appendChild(cancelBtn);
+  dialog.appendChild(label);
+  dialog.appendChild(input);
+  dialog.appendChild(buttonsDiv);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // Focus input
+  input.focus();
+}
+
 function handleKeyUp(e) {
   // Track key releases
   if (e.key === "Control") {
