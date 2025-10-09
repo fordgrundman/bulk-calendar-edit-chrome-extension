@@ -2,10 +2,70 @@
 <html>
   <head>
     <title>Calendar Extension</title>
+    <style>
+      body {
+        width: 300px;
+        padding: 15px;
+        font-family: Arial, sans-serif;
+      }
+      h3 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+      }
+      .status {
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      .status.signed-in {
+        background: #e8f5e9;
+        color: #2e7d32;
+      }
+      .status.signed-out {
+        background: #ffebee;
+        color: #c62828;
+      }
+      button {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 8px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      #signin {
+        background: #4285f4;
+        color: white;
+      }
+      #signin:hover {
+        background: #3367d6;
+      }
+      #signout {
+        background: #f1f1f1;
+        color: #333;
+      }
+      #signout:hover {
+        background: #e0e0e0;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .account-info {
+        font-size: 12px;
+        color: #666;
+        margin-top: 5px;
+      }
+    </style>
   </head>
   <body>
-    <button id="listevents">List Events</button>
-    <pre id="output"></pre>
+    <h3>Bulk Calendar Edit</h3>
+    <div id="status" class="status">Checking authentication...</div>
+    <div id="accountInfo" class="account-info"></div>
+    <button id="signin">Sign in with Google</button>
+    <button id="signout">Sign out</button>
     <script src="popup.js"></script>
   </body>
 </html>
