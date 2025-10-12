@@ -4,7 +4,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const prompt = request.prompt || null;
 
     if (interactive && prompt === "select_account") {
-      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+      chrome.identity.getAuthToken({ interactive: true }, (token) => {
         if (token) {
           chrome.identity.removeCachedAuthToken({ token }, () => {});
         }

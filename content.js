@@ -289,6 +289,9 @@ function handleKeyUp(e) {
   if (e.key === "z") zPressed = false;
   if (e.key === "Shift") shiftPressed = false;
   if (e.key === "b" || e.key === "B") bPressed = false;
+  if (e.key === "Delete" && selected.length > 0) {
+    deleteSelectedEvents(); // Move events back by 15 minutes on Delete key
+  }
 
   if (isKeyboardSelecting && (!ctrlPressed || !zPressed)) {
     finishMarqueeSelection();
@@ -325,6 +328,36 @@ function handleMouseUp(e) {
   if (isSelecting && !isKeyboardSelecting) {
     finishMarqueeSelection();
   }
+}
+
+async function deleteSelectedEvents() {
+  if(selected.length === 0) return;
+
+  const authResponse = await chrome.runtime.sendMessage({
+    type: "GET_AUTH_TOKEN",
+  });
+
+  const token = authResponse.token;
+
+  if (!authResponse.authenticated) {
+    alert("Please sign in first to delete events");
+    return;
+  }
+
+  for (const eventId of selected) {
+    try {
+      const eventResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" })
+      if (!eventResponse.ok) {
+        console.error(`Failed to delete event ${eventId}:`, eventResponse.statusText);
+      }
+    } catch (error) {
+      console.error(`Error deleting event ${eventId}:`, error);
+    }
+  }
+
+  window.location.reload();
 }
 
 async function moveSelectedEventsByMinutes(minutes) {
