@@ -139,13 +139,26 @@ function finishMarqueeSelection() {
 //===== EVENT HANDLERS & INITIALIZATION =====
 
 function initializeExtension() {
-  const header = document.querySelector("header");
-  const headerMid = header.querySelector(
-    ":scope > :nth-child(2) > :nth-child(2)"
-  );
-  const newElem = document.createElement("div");
-  newElem.textContent = "text";
-  headerMid.insertBefore(newElem, headerMid.children[1]);
+  // Find the left sidebar navigation element above TOS label
+  const leftSidebar = document.querySelector('.wBon4c');
+  
+  if (leftSidebar) {
+    const newElem = document.createElement("div");
+    newElem.textContent = "Google Calendar Bulk Edit";
+    newElem.style.cssText = `
+      padding: 10px;
+      border: 0.1px solid red;
+      border-radius: 4px;
+      margin-top: 1rem;
+      height: 5rem;
+      text-align: center;
+      font-weight: bold;
+      font-size: 14px;
+      line-height: 1.2;
+    `;
+    // Append to the bottom of the sidebar
+    leftSidebar.appendChild(newElem);
+  }
 
   document.addEventListener("mousedown", handleMouseDown);
   document.addEventListener("mousemove", handleMouseMove);
