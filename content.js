@@ -11,6 +11,7 @@ let isDragging = false;
 let dragStartY = 0;
 let draggedEventId = null;
 
+//check if our selection box overlaps with any event rects
 function isOverlapping(rectA, rectB) {
   return (
     rectA.left < rectB.right &&
@@ -20,16 +21,17 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
+//this function is SUPPOSED TO enable drag selection, fundamentally flawed at the moment
 function checkForEventDrag(e) {
-  if (isSelecting || isKeyboardSelecting || selected.length === 0) return false;
+  if (isSelecting || isKeyboardSelecting || selected.length === 0) return false; //we are already selecting, return
 
   const eventElement = e.target.closest('[role="button"][data-eventid]');
-  if (!eventElement) return false;
+  if (!eventElement) return false; //not selected over anything, return
 
-  const jslogAttr = eventElement.getAttribute("jslog");
+  const jslogAttr = eventElement.getAttribute("jslog"); //jslog attr on html element holds our actual google calendar ids that api understands
   if (!jslogAttr) return false;
 
-  const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+  const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/); //compare against expected google calendar api id format
   const eventId = match?.[1];
 
   if (selected.includes(eventId)) {
@@ -42,6 +44,7 @@ function checkForEventDrag(e) {
   return false;
 }
 function startMarqueeSelection(e) {
+  //remove any pre-existing selection box from the DOM if one already exists
   if (selectionBox) {
     selectionBox.remove();
     selectionBox = null;
@@ -67,8 +70,11 @@ function startMarqueeSelection(e) {
 }
 
 function updateSelectionBox(e) {
+  // Exit if no selection is currently being made (prevents updating box when not selecting)
   if (!isSelecting) return;
 
+  //Math.min prevents the box from being drawn with negative width/height
+  //and keeps its position correct no matter the drag direction
   const x = Math.min(e.pageX, startX);
   const y = Math.min(e.pageY, startY);
   const width = Math.abs(e.pageX - startX);
@@ -140,8 +146,8 @@ function finishMarqueeSelection() {
 
 function initializeExtension() {
   // Find the left sidebar navigation element above TOS label
-  const leftSidebar = document.querySelector('.wBon4c');
-  
+  const leftSidebar = document.querySelector(".wBon4c");
+
   if (leftSidebar) {
     const newElem = document.createElement("div");
     newElem.textContent = "Google Calendar Bulk Edit";
@@ -344,7 +350,7 @@ function handleMouseUp(e) {
 }
 
 async function deleteSelectedEvents() {
-  if(selected.length === 0) return;
+  if (selected.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
@@ -361,9 +367,13 @@ async function deleteSelectedEvents() {
     try {
       const eventResponse = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-        { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" })
+        { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" }
+      );
       if (!eventResponse.ok) {
-        console.error(`Failed to delete event ${eventId}:`, eventResponse.statusText);
+        console.error(
+          `Failed to delete event ${eventId}:`,
+          eventResponse.statusText
+        );
       }
     } catch (error) {
       console.error(`Error deleting event ${eventId}:`, error);
