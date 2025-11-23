@@ -11,6 +11,11 @@ let isDragging = false;
 let dragStartY = 0;
 let draggedEventId = null;
 
+//keep service worker alive by periodically pinging
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: "PING" });
+}, 20 * 1000); // every 20 seconds
+
 //check if our selection box overlaps with any event rects
 function isOverlapping(rectA, rectB) {
   return (
@@ -159,9 +164,6 @@ function handleMouseDown(e) {
     !isKeyboardSelecting &&
     selected.length > 0
   ) {
-    if (checkForEventDrag(e)) {
-      e.preventDefault();
-    }
   }
 }
 
@@ -455,3 +457,13 @@ async function moveSelectedEventsByMinutes(minutes) {
 }
 
 initializeExtension();
+
+//ensure the drag/select logic never dies when Calendar rerenders
+const observer = new MutationObserver(() => {
+  initializeExtension();
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});

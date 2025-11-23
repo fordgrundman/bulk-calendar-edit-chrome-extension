@@ -3,6 +3,10 @@
   "name": "Google Calendar Bulk Edit",
   "version": "1.0",
   "permissions": ["identity"],
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://accounts.google.com/*"
+  ],
   "oauth2": {
     "client_id": "425275071746-ltv7rujaccp5g0q9ebgc499qcd99tjvi.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/calendar"]
