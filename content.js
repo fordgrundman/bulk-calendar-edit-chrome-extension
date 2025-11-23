@@ -115,24 +115,30 @@ function finishMarqueeSelection() {
 }
 
 function initializeExtension() {
-  const leftSidebar = document.querySelector(".wBon4c");
+  // const leftSidebar = document.querySelector(".wBon4c");
 
-  if (leftSidebar) {
-    const newElem = document.createElement("div");
-    newElem.textContent = "Google Calendar Bulk Edit";
-    newElem.style.cssText = `
-      padding: 10px;
-      border: 0.1px solid red;
-      border-radius: 4px;
-      margin-top: 1rem;
-      height: 5rem;
-      text-align: center;
-      font-weight: bold;
-      font-size: 14px;
-      line-height: 1.2;
-    `;
-    leftSidebar.appendChild(newElem);
-  }
+  // if (leftSidebar) {
+  //   const newElem = document.createElement("div");
+  //   newElem.textContent = "Google Calendar Bulk Edit";
+  //   newElem.style.cssText = `
+  //     padding: 10px;
+  //     border: 0.1px solid red;
+  //     border-radius: 4px;
+  //     margin-top: 1rem;
+  //     height: 5rem;
+  //     text-align: center;
+  //     font-weight: bold;
+  //     font-size: 14px;
+  //     line-height: 1.2;
+  //   `;
+
+  //   newElem.innerHTML = `
+  //   <h3>Google Calendar Bulk Edit</h3>
+  //   <p>Check Extension Popup For Keybinds</p>
+  // `;
+
+  //   leftSidebar.appendChild(newElem);
+  // }
 
   document.addEventListener("mousedown", handleMouseDown);
   document.addEventListener("mousemove", handleMouseMove);
@@ -164,6 +170,9 @@ function handleKeyDown(e) {
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
+  if (e.key === "Delete" && shiftPressed && selected.length > 0) {
+    deleteSelectedEvents();
+  }
 
   if (altPressed && sPressed && !isKeyboardSelecting && !isSelecting) {
     console.log("alt and s clicked together");
@@ -297,9 +306,6 @@ function handleKeyUp(e) {
     bPressed = false;
     console.log("b pressed");
   }
-  if (e.key === "Delete" && selected.length > 0) {
-    deleteSelectedEvents();
-  }
 
   if (isKeyboardSelecting && (!altPressed || !sPressed)) {
     finishMarqueeSelection();
@@ -339,6 +345,13 @@ function handleMouseUp(e) {
 }
 
 async function deleteSelectedEvents() {
+  //pop up an alert/confirm box to verify user really wants to delete the selected events
+  const confirmedDelete = confirm(
+    "Are you sure you want to delete the selected events? This action can not be undone."
+  );
+
+  if (!confirmedDelete) return;
+
   if (selected.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
