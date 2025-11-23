@@ -3,8 +3,8 @@ let startX, startY;
 let selectionBox;
 let selected = [];
 let isKeyboardSelecting = false;
-let ctrlPressed = false;
-let zPressed = false;
+let altPressed = false;
+let sPressed = false;
 let shiftPressed = false;
 let bPressed = false;
 let isDragging = false;
@@ -21,30 +21,9 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
-//this function is SUPPOSED TO enable drag selection, fundamentally flawed at the moment
-function checkForEventDrag(e) {
-  if (isSelecting || isKeyboardSelecting || selected.length === 0) return false; //we are already selecting, return
-
-  const eventElement = e.target.closest('[role="button"][data-eventid]');
-  if (!eventElement) return false; //not selected over anything, return
-
-  const jslogAttr = eventElement.getAttribute("jslog"); //jslog attr on html element holds our actual google calendar ids that api understands
-  if (!jslogAttr) return false;
-
-  const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/); //compare against expected google calendar api id format
-  const eventId = match?.[1];
-
-  if (selected.includes(eventId)) {
-    isDragging = true;
-    draggedEventId = eventId;
-    dragStartY = e.pageY;
-    return true;
-  }
-
-  return false;
-}
 function startMarqueeSelection(e) {
   //remove any pre-existing selection box from the DOM if one already exists
+  console.log("startMarqueeSelection called");
   if (selectionBox) {
     selectionBox.remove();
     selectionBox = null;
@@ -56,7 +35,7 @@ function startMarqueeSelection(e) {
 
   selectionBox = document.createElement("div");
   selectionBox.style.cssText = `
-    position: absolute;
+    position: fixed; /* <-- changed from absolute */
     border: 2px dashed red;
     background-color: rgba(226, 74, 74, 0.2);
     left: ${startX}px;
@@ -70,11 +49,8 @@ function startMarqueeSelection(e) {
 }
 
 function updateSelectionBox(e) {
-  // Exit if no selection is currently being made (prevents updating box when not selecting)
   if (!isSelecting) return;
 
-  //Math.min prevents the box from being drawn with negative width/height
-  //and keeps its position correct no matter the drag direction
   const x = Math.min(e.pageX, startX);
   const y = Math.min(e.pageY, startY);
   const width = Math.abs(e.pageX - startX);
@@ -87,18 +63,17 @@ function updateSelectionBox(e) {
 }
 
 function finishMarqueeSelection() {
-  if (!isSelecting) return; // Prevent multiple calls
+  if (!isSelecting) return;
 
   isSelecting = false;
-  isKeyboardSelecting = false; // Reset keyboard selection state
-  ctrlPressed = false; // Reset key states
-  zPressed = false;
+  isKeyboardSelecting = false;
+  altPressed = false;
+  sPressed = false;
 
-  if (!selectionBox) return; // Safety check
+  if (!selectionBox) return;
 
   const rect = selectionBox.getBoundingClientRect();
 
-  //Process event selection
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
   gcEvents.forEach((event, index) => {
@@ -112,23 +87,20 @@ function finishMarqueeSelection() {
         return;
       }
 
-      //look for pattern: eventId embedded in jslog
       const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
       const eventId = match ? match[1] : null;
 
       console.log("🆔 Extracted eventId:", eventId);
 
       if (!eventId) {
-        return; //skip if no id found
+        return;
       }
 
       if (!isEventSelected) {
-        //Select event
         event.style.backgroundColor = "red";
         selected.push(eventId);
         event.classList.add("gc-bulk-selected");
       } else {
-        //Deselect event
         event.style.backgroundColor = event.style.borderColor;
         selected = selected.filter(
           (filterEventId) => filterEventId !== eventId
@@ -142,10 +114,7 @@ function finishMarqueeSelection() {
   selectionBox = null;
 }
 
-//===== EVENT HANDLERS & INITIALIZATION =====
-
 function initializeExtension() {
-  // Find the left sidebar navigation element above TOS label
   const leftSidebar = document.querySelector(".wBon4c");
 
   if (leftSidebar) {
@@ -162,7 +131,6 @@ function initializeExtension() {
       font-size: 14px;
       line-height: 1.2;
     `;
-    // Append to the bottom of the sidebar
     leftSidebar.appendChild(newElem);
   }
 
@@ -192,14 +160,21 @@ function handleMouseDown(e) {
 }
 
 function handleKeyDown(e) {
-  if (e.key === "Control") ctrlPressed = true;
-  if (e.key === "z") zPressed = true;
+  if (e.key === "Alt") altPressed = true;
+  if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
 
-  if (ctrlPressed && zPressed && !isKeyboardSelecting && !isSelecting) {
+  if (altPressed && sPressed && !isKeyboardSelecting && !isSelecting) {
+    console.log("alt and s clicked together");
     isKeyboardSelecting = true;
-    startMarqueeSelection(e);
+
+    startMarqueeSelection({
+      pageX: window.lastMouseX,
+      pageY: window.lastMouseY,
+      preventDefault: () => {},
+    });
+
     e.preventDefault();
   }
 
@@ -208,6 +183,7 @@ function handleKeyDown(e) {
     e.preventDefault();
   }
 }
+
 function showMinutesInputDialog() {
   const overlay = document.createElement("div");
   overlay.style.cssText = `
@@ -304,15 +280,28 @@ function showMinutesInputDialog() {
 }
 
 function handleKeyUp(e) {
-  if (e.key === "Control") ctrlPressed = false;
-  if (e.key === "z") zPressed = false;
-  if (e.key === "Shift") shiftPressed = false;
-  if (e.key === "b" || e.key === "B") bPressed = false;
-  if (e.key === "Delete" && selected.length > 0) {
-    deleteSelectedEvents(); // Move events back by 15 minutes on Delete key
+  if (e.key === "Alt") {
+    altPressed = false;
+    console.log("alt pressed");
+  }
+  if (e.key === "s" || e.key === "S") {
+    sPressed = false;
+    console.log("s pressed");
   }
 
-  if (isKeyboardSelecting && (!ctrlPressed || !zPressed)) {
+  if (e.key === "Shift") {
+    shiftPressed = false;
+    console.log("shift pressed");
+  }
+  if (e.key === "b" || e.key === "B") {
+    bPressed = false;
+    console.log("b pressed");
+  }
+  if (e.key === "Delete" && selected.length > 0) {
+    deleteSelectedEvents();
+  }
+
+  if (isKeyboardSelecting && (!altPressed || !sPressed)) {
     finishMarqueeSelection();
   }
 }
@@ -333,7 +322,7 @@ function handleMouseMove(e) {
 function handleMouseUp(e) {
   if (isDragging) {
     const deltaY = e.pageY - dragStartY;
-    const steps = Math.round(deltaY / 12); // 12px = 15min
+    const steps = Math.round(deltaY / 12);
     const minutes = steps * 15;
 
     if (minutes !== 0) moveSelectedEventsByMinutes(minutes);
