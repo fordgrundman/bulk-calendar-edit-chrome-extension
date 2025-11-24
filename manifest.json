@@ -2,13 +2,13 @@
   "manifest_version": 3,
   "name": "Google Calendar Bulk Edit",
   "version": "1.0",
-  "permissions": ["identity"],
+  "permissions": ["identity", "storage"],
   "host_permissions": [
     "https://www.googleapis.com/*",
     "https://accounts.google.com/*"
   ],
   "oauth2": {
-    "client_id": "425275071746-ltv7rujaccp5g0q9ebgc499qcd99tjvi.apps.googleusercontent.com",
+    "client_id": "425275071746-u1qj9o514t9edrof9i8iqamf2ldojdmj.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/calendar"]
   },
   "background": {

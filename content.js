@@ -26,6 +26,19 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
+//load highlight color from chrome.storage.sync
+chrome.storage.sync.get("highlightColor", ({ highlightColor }) => {
+  window.highlightColor = highlightColor || "red";
+});
+
+//add a listener so content.js is refreshed on changes to local storage, which is relevant for the selection box color picker in popup
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changes.highlightColor) {
+    window.highlightColor = changes.highlightColor.newValue;
+    console.log("Highlight color updated to:", window.highlightColor);
+  }
+});
+
 function startMarqueeSelection(e) {
   //remove any pre-existing selection box from the DOM if one already exists
   console.log("startMarqueeSelection called");
@@ -38,11 +51,13 @@ function startMarqueeSelection(e) {
   startX = e.pageX;
   startY = e.pageY;
 
+  let selectionBoxColor = window.highlightColor || "red";
+
   selectionBox = document.createElement("div");
   selectionBox.style.cssText = `
-    position: fixed; /* <-- changed from absolute */
-    border: 2px dashed red;
-    background-color: rgba(226, 74, 74, 0.2);
+    position: fixed; 
+    border: 2px dashed ${selectionBoxColor};
+    background-color: color-mix(in srgb, ${selectionBoxColor} 30%, transparent);
     left: ${startX}px;
     top: ${startY}px;
     pointer-events: none;
@@ -52,6 +67,7 @@ function startMarqueeSelection(e) {
 
   e.preventDefault();
 }
+
 
 function updateSelectionBox(e) {
   if (!isSelecting) return;
@@ -102,7 +118,7 @@ function finishMarqueeSelection() {
       }
 
       if (!isEventSelected) {
-        event.style.backgroundColor = "red";
+        event.style.backgroundColor = window.highlightColor || "red";
         selected.push(eventId);
         event.classList.add("gc-bulk-selected");
       } else {
@@ -455,6 +471,7 @@ async function moveSelectedEventsByMinutes(minutes) {
 
   window.location.reload();
 }
+
 
 initializeExtension();
 
