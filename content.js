@@ -188,7 +188,7 @@ function handleKeyDown(e) {
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
-  if (e.key === "Delete" && shiftPressed && selected.length > 0) {
+  if ((e.key === "Delete" || e.key === "Backspace") && shiftPressed && selected.length > 0) {
     deleteSelectedEvents();
   }
 
