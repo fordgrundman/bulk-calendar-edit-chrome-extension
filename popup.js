@@ -101,3 +101,30 @@ signoutBtn.addEventListener("click", () => {
 });
 
 checkAuthStatus();
+
+const colorPicker = document.getElementById("colorPicker");
+const colorInput = document.getElementById("colorInput");
+
+//keep color picker and text input in local storage
+colorPicker.addEventListener("input", () => {
+  colorInput.value = colorPicker.value;
+  localStorage.setItem("highlightColor", colorPicker.value); // store selected color
+});
+
+colorInput.addEventListener("input", () => {
+  //validate hex color
+  const hex = colorInput.value.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+    colorPicker.value = hex;
+    localStorage.setItem("highlightColor", hex);
+  }
+});
+
+//load saved color on popup open
+document.addEventListener("DOMContentLoaded", () => {
+  const savedColor = localStorage.getItem("highlightColor");
+  if (savedColor) {
+    colorPicker.value = savedColor;
+    colorInput.value = savedColor;
+  }
+});
