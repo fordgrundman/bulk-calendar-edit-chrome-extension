@@ -88,8 +88,6 @@ function finishMarqueeSelection() {
 
   isSelecting = false;
   isKeyboardSelecting = false;
-  altPressed = false;
-  sPressed = false;
 
   if (!selectionBox) return;
 
