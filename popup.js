@@ -108,7 +108,12 @@ const colorInput = document.getElementById("colorInput");
 //keep color picker and text input in local storage
 colorPicker.addEventListener("input", () => {
   colorInput.value = colorPicker.value;
-  chrome.storage.sync.set({ highlightColor: colorPicker.value }); // store selected color
+  
+  //send message to background so background.js can handle storage writes instead
+  chrome.runtime.sendMessage({
+    type: "SET_HIGHLIGHT_COLOR", 
+    color: colorPicker.value
+  });
 });
 
 colorInput.addEventListener("input", () => {
@@ -116,13 +121,16 @@ colorInput.addEventListener("input", () => {
   const hex = colorInput.value.trim();
   if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
     colorPicker.value = hex;
-    chrome.storage.sync.set({ highlightColor: hex });
+    chrome.runtime.sendMessage({
+      type: "SET_HIGHLIGHT_COLOR",
+      color: hex
+    });
   }
 });
 
-//load saved color on popup open
+//load saved color on popup open. reading from local storage is fine, popups shoudln't write though to prevent rapid writes -> invalidated context error
 document.addEventListener("DOMContentLoaded", () => {
-  chrome.storage.sync.get("highlightColor", ({ highlightColor }) => {
+  chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
     if (highlightColor) {
       colorPicker.value = highlightColor;
       colorInput.value = highlightColor;

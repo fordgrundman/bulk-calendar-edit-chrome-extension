@@ -11,11 +11,6 @@ let isDragging = false;
 let dragStartY = 0;
 let draggedEventId = null;
 
-//keep service worker alive by periodically pinging
-setInterval(() => {
-  chrome.runtime.sendMessage({ type: "PING" });
-}, 20 * 1000); // every 20 seconds
-
 //check if our selection box overlaps with any event rects
 function isOverlapping(rectA, rectB) {
   return (
@@ -26,18 +21,18 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
-//load highlight color from chrome.storage.sync
-chrome.storage.sync.get("highlightColor", ({ highlightColor }) => {
+//load highlight color from chrome.storage
+chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
   window.highlightColor = highlightColor || "red";
 });
 
-//add a listener so content.js is refreshed on changes to local storage, which is relevant for the selection box color picker in popup
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync" && changes.highlightColor) {
-    window.highlightColor = changes.highlightColor.newValue;
-    console.log("Highlight color updated to:", window.highlightColor);
+//get live updates from background
+chrome.runtime.onMessage.addListener((msg) => {
+  if(msg.type === "HIGHLIGHT_COLOR_UPDATED") {
+    window.highlightColor = msg.color; //set selection/highlight color passed from popup.js -> background.js -> content.js (here)
+    console.log("Highlight color updated: ", msg.color);
   }
-});
+})
 
 function startMarqueeSelection(e) {
   //remove any pre-existing selection box from the DOM if one already exists
@@ -133,38 +128,7 @@ function finishMarqueeSelection() {
   selectionBox = null;
 }
 
-function initializeExtension() {
-  // const leftSidebar = document.querySelector(".wBon4c");
 
-  // if (leftSidebar) {
-  //   const newElem = document.createElement("div");
-  //   newElem.textContent = "Google Calendar Bulk Edit";
-  //   newElem.style.cssText = `
-  //     padding: 10px;
-  //     border: 0.1px solid red;
-  //     border-radius: 4px;
-  //     margin-top: 1rem;
-  //     height: 5rem;
-  //     text-align: center;
-  //     font-weight: bold;
-  //     font-size: 14px;
-  //     line-height: 1.2;
-  //   `;
-
-  //   newElem.innerHTML = `
-  //   <h3>Google Calendar Bulk Edit</h3>
-  //   <p>Check Extension Popup For Keybinds</p>
-  // `;
-
-  //   leftSidebar.appendChild(newElem);
-  // }
-
-  document.addEventListener("mousedown", handleMouseDown);
-  document.addEventListener("mousemove", handleMouseMove);
-  document.addEventListener("mouseup", handleMouseUp);
-  document.addEventListener("keydown", handleKeyDown);
-  document.addEventListener("keyup", handleKeyUp);
-}
 
 function handleMouseDown(e) {
   if (e.button === 1 && e.shiftKey) {
@@ -470,6 +434,13 @@ async function moveSelectedEventsByMinutes(minutes) {
   window.location.reload();
 }
 
+function initializeExtension() {
+  document.addEventListener("mousedown", handleMouseDown);
+  document.addEventListener("mousemove", handleMouseMove);
+  document.addEventListener("mouseup", handleMouseUp);
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("keyup", handleKeyUp);
+}
 
 initializeExtension();
 
