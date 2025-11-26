@@ -30,13 +30,11 @@ chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
 chrome.runtime.onMessage.addListener((msg) => {
   if(msg.type === "HIGHLIGHT_COLOR_UPDATED") {
     window.highlightColor = msg.color; //set selection/highlight color passed from popup.js -> background.js -> content.js (here)
-    console.log("Highlight color updated: ", msg.color);
   }
 })
 
 function startMarqueeSelection(e) {
   //remove any pre-existing selection box from the DOM if one already exists
-  console.log("startMarqueeSelection called");
   if (selectionBox) {
     selectionBox.remove();
     selectionBox = null;
@@ -104,8 +102,6 @@ function finishMarqueeSelection() {
       const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
       const eventId = match ? match[1] : null;
 
-      console.log("🆔 Extracted eventId:", eventId);
-
       if (!eventId) {
         return;
       }
@@ -155,7 +151,6 @@ function handleKeyDown(e) {
   }
 
   if (altPressed && sPressed && !isKeyboardSelecting && !isSelecting) {
-    console.log("alt and s clicked together");
     isKeyboardSelecting = true;
 
     startMarqueeSelection({
@@ -271,20 +266,16 @@ function showMinutesInputDialog() {
 function handleKeyUp(e) {
   if (e.key === "Alt") {
     altPressed = false;
-    console.log("alt pressed");
   }
   if (e.key === "s" || e.key === "S") {
     sPressed = false;
-    console.log("s pressed");
   }
 
   if (e.key === "Shift") {
     shiftPressed = false;
-    console.log("shift pressed");
   }
   if (e.key === "b" || e.key === "B") {
     bPressed = false;
-    console.log("b pressed");
   }
 
   if (isKeyboardSelecting && (!altPressed || !sPressed)) {
@@ -352,13 +343,13 @@ async function deleteSelectedEvents() {
         { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" }
       );
       if (!eventResponse.ok) {
-        console.error(
-          `Failed to delete event ${eventId}:`,
-          eventResponse.statusText
-        );
+        // console.error(
+        //   `Failed to delete event ${eventId}:`,
+        //   eventResponse.statusText
+        // );
       }
     } catch (error) {
-      console.error(`Error deleting event ${eventId}:`, error);
+      // console.error(`Error deleting event ${eventId}:`, error);
     }
   }
 
@@ -427,7 +418,7 @@ async function moveSelectedEventsByMinutes(minutes) {
         }
       );
     } catch (error) {
-      console.error(`Error processing event ${eventId}:`, error);
+      // console.error(`Error processing event ${eventId}:`, error);
     }
   }
 

@@ -21,9 +21,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             type: "HIGHLIGHT_COLOR_UPDATED", color
           }, () => {
             if (chrome.runtime.lastError) {
-            //swallow the error so Chrome doesn't log it
-            console.debug("No listener in tab", tab.id);
-  }
+            // //swallow the error so Chrome doesn't log it
+            // console.debug("No listener in tab", tab.id);
+            }
           });
         }
       });
