@@ -17,7 +17,6 @@ async function checkAuthStatus() {
     const response = await chrome.runtime.sendMessage({
       type: "GET_AUTH_TOKEN",
       interactive: false,
-      prompt: "select_account", // this is safe + keeps chooser available
     });
 
     if (response?.authenticated) {
@@ -31,13 +30,15 @@ async function checkAuthStatus() {
 
       // Fetch user info
       const userInfo = await fetch(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
+        "https://www.googleapis.com/oauth2/v3/userinfo",
         { headers: { Authorization: `Bearer ${response.token}` } }
       );
 
       if (userInfo.ok) {
         const data = await userInfo.json();
-        accountInfoDiv.textContent = data.email;
+        accountInfoDiv.textContent = data.email || "";
+      } else {
+        accountInfoDiv.textContent = "";
       }
     } else {
       statusDiv.textContent = "Not signed in";
@@ -70,9 +71,29 @@ signinBtn.addEventListener("click", async () => {
     if (response?.authenticated) {
       statusDiv.textContent = "Sign in successful!";
       statusDiv.className = "status signed-in";
+      signoutBtn.disabled = false;
 
       // Store token for logout
       window.lastToken = response.token;
+
+      //Fetch email immediately
+      accountInfoDiv.textContent = "Fetching email...";
+
+      // Fetch user info
+      const userInfo = await fetch(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        { headers: { Authorization: `Bearer ${response.token}` } }
+      );
+
+      if (userInfo.ok) {
+        const data = await userInfo.json();
+        // Display the email
+        accountInfoDiv.textContent = data.email || "";
+      } else {
+        // Handle fetch error, e.g., if the token is bad
+        accountInfoDiv.textContent = "Could not fetch email";
+        console.error("Failed to fetch user info:", userInfo.statusText);
+      }
     } else {
       statusDiv.textContent = "Sign in failed";
       statusDiv.className = "status signed-out";
