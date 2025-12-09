@@ -580,6 +580,40 @@ function initializeExtension() {
 }
 
 initializeExtension();
+
+//-------------------------RESETS FOR WHEN TAB LOSES FOCUS ---------------------------------
+window.addEventListener("blur", () => {
+  resetSelectionState();
+});
+
+// When user returns to the tab
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    resetSelectionState();
+  }
+});
+
+function resetSelectionState() {
+  isSelecting = false;
+  isKeyboardSelecting = false;
+  isDragging = false;
+
+  altPressed = false;
+  sPressed = false;
+  aPressed = false;
+  shiftPressed = false;
+  bPressed = false;
+
+  startX = null;
+  startY = null;
+
+  // remove selection box if it exists
+  if (selectionBox && selectionBox.parentNode) {
+    selectionBox.parentNode.removeChild(selectionBox);
+  }
+  selectionBox = null;
+}
+
 //--------RESTORE SELECTIONS BETWEEN RE-RENDERS (LIKE CHANGING CALENDAR WEEKS)-----------
 function restoreSelectedEvents() {
   if (selected.length === 0) return;
