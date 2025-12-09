@@ -5,6 +5,7 @@ let selected = [];
 let isKeyboardSelecting = false;
 let altPressed = false;
 let sPressed = false;
+let aPressed = false;
 let shiftPressed = false;
 let bPressed = false;
 let isDragging = false;
@@ -143,15 +144,55 @@ function handleMouseDown(e) {
   }
 }
 
+function deselectAllEvents() {
+  console.log("calling deselect");
+
+  const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+  
+  gcEvents.forEach((event) => {
+    const isEventSelected = event.classList.contains("gc-bulk-selected");
+
+    //only if the current event is selected
+    if(isEventSelected) {
+      const jslogAttr = event.getAttribute("jslog");
+
+      if (!jslogAttr) {
+        return;
+      }
+
+      const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+      const eventId = match ? match[1] : null;
+
+      if (!eventId) {
+        return;
+      }
+
+      //deselect visually and internally
+      event.style.backgroundColor = event.style.borderColor;
+      selected = selected.filter(
+      (filterEventId) => filterEventId !== eventId);
+      event.classList.remove("gc-bulk-selected");
+    
+    }
+  });
+}
+
 function handleKeyDown(e) {
   if (e.key === "Alt") altPressed = true;
+  if (e.key === "a") aPressed = true; 
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
+
+  //deselect all logic
+  if(altPressed && aPressed && selected.length > 0) deselectAllEvents();
+
+  //delete events logic
   if ((e.key === "Delete" || e.key === "Backspace") && altPressed && selected.length > 0) {
     //reset all key presses, because confirm boxes block the JS thread, so browser does not fire keyup to reset them
     altPressed = false;
     sPressed = false;
+    aPressed = false;
     bPressed = false;
     shiftPressed = false;
     
@@ -309,6 +350,10 @@ function handleKeyUp(e) {
 
   if (e.key === "Shift") {
     shiftPressed = false;
+  }
+  
+  if (e.key === "a") {
+    aPressed = false;
   }
   if (e.key === "b" || e.key === "B") {
     bPressed = false;
