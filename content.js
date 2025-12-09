@@ -283,8 +283,6 @@ function handleKeyUp(e) {
 
 //---------------------------------- DESELECT LOGIC ----------------------------------
 function deselectAllEvents() {
-  console.log("calling deselect");
-
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
   gcEvents.forEach((event) => {
@@ -307,11 +305,13 @@ function deselectAllEvents() {
       event.style.backgroundColor = event.style.borderColor;
       selected = selected.filter((filterEventId) => filterEventId !== eventId);
       event.classList.remove("gc-bulk-selected");
-
-      let counterElem = document.querySelector(".gc-selected-counter");
-      counterElem.textContent = "Selected Events: " + selected.length;
     }
   });
+
+  //as a failsafe, just reset selected anyways
+  selected = [];
+  let counterElem = document.querySelector(".gc-selected-counter");
+  counterElem.textContent = "Selected Events: " + selected.length;
 }
 
 //---------------------------------- MOVE EVENT POPUP ---------------------------------
@@ -462,9 +462,7 @@ async function deleteSelectedEvents() {
         );
         return;
       }
-    } catch (error) {
-      console.error(`Error deleting event ${eventId}:`, error);
-    }
+    } catch (error) {}
   }
 
   window.location.reload();
@@ -582,10 +580,41 @@ function initializeExtension() {
 }
 
 initializeExtension();
+//--------RESTORE SELECTIONS BETWEEN RE-RENDERS (LIKE CHANGING CALENDAR WEEKS)-----------
+function restoreSelectedEvents() {
+  if (selected.length === 0) return;
+
+  const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+
+  gcEvents.forEach((event) => {
+    const jslogAttr = event.getAttribute("jslog");
+    if (!jslogAttr) return;
+
+    const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+    const eventId = match ? match[1] : null;
+
+    if (eventId && selected.includes(eventId)) {
+      event.classList.add("gc-bulk-selected");
+      event.style.backgroundColor = window.highlightColor || "red";
+    }
+  });
+
+  const counterElem = document.querySelector(".gc-selected-counter");
+  if (counterElem) {
+    counterElem.textContent = "Selected Events: " + selected.length;
+  }
+}
 
 //---------------------------------- DOM OBSERVER (RE-INIT) --------------------------
+let rerenderTimeout;
+
 const observer = new MutationObserver(() => {
-  initializeExtension();
+  clearTimeout(rerenderTimeout);
+
+  rerenderTimeout = setTimeout(() => {
+    initializeExtension(); // rebuild counter if needed
+    restoreSelectedEvents(); // reapply bulk-selected classes
+  }, 50);
 });
 
 observer.observe(document.body, {
