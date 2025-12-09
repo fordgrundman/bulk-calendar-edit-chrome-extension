@@ -34,6 +34,12 @@ chrome.runtime.onMessage.addListener((msg) => {
   if(msg.type === "HIGHLIGHT_COLOR_UPDATED") {
     window.highlightColor = msg.color; //set selection/highlight color passed from popup.js -> background.js -> content.js (here)
   }
+
+  //update counter color
+  let counterElem = document.querySelector(".gc-selected-counter");
+  if(counterElem) {
+    counterElem.style.border = "0.1em solid " + msg.color;
+  }
 })
 
 function startMarqueeSelection(e) {
@@ -532,7 +538,7 @@ function initializeExtension() {
       counterElem.classList.add("gc-selected-counter");
 
       counterElem.style.margin = "0 auto";
-      counterElem.style.border = "0.1em solid white";
+      counterElem.style.border = "0.1em solid white"
       counterElem.style.padding = "0.5em";
       counterElem.style.fontSize = "1rem";
       counterElem.style.fontWeight = "bold";
@@ -542,6 +548,8 @@ function initializeExtension() {
       elemBeforeCounter.insertAdjacentElement("afterend", counterElem);
     }
   }
+
+
 
 }
 
