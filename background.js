@@ -41,6 +41,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "GET_AUTH_TOKEN") {
     const interactive = request.interactive || false;
     const prompt = request.prompt || null;
+    const userEmail = null;
 
     function respondAuthError(message) {
       sendResponse({ authenticated: false, error: message });

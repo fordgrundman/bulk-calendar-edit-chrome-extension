@@ -31,16 +31,16 @@ chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
 
 //get live updates from background
 chrome.runtime.onMessage.addListener((msg) => {
-  if(msg.type === "HIGHLIGHT_COLOR_UPDATED") {
+  if (msg.type === "HIGHLIGHT_COLOR_UPDATED") {
     window.highlightColor = msg.color; //set selection/highlight color passed from popup.js -> background.js -> content.js (here)
   }
 
   //update counter color
   let counterElem = document.querySelector(".gc-selected-counter");
-  if(counterElem) {
+  if (counterElem) {
     counterElem.style.border = "0.1em solid " + msg.color;
   }
-})
+});
 
 function startMarqueeSelection(e) {
   //remove any pre-existing selection box from the DOM if one already exists
@@ -69,7 +69,6 @@ function startMarqueeSelection(e) {
 
   e.preventDefault();
 }
-
 
 function updateSelectionBox(e) {
   if (!isSelecting) return;
@@ -137,10 +136,8 @@ function finishMarqueeSelection() {
   selectionBox = null;
 }
 
-
-
 function handleMouseDown(e) {
-  if (e.button === 1 && e.shiftKey) {
+  if (e.button === 1 && altPressed) {
     startMarqueeSelection(e);
     return;
   }
@@ -163,7 +160,7 @@ function deselectAllEvents() {
     const isEventSelected = event.classList.contains("gc-bulk-selected");
 
     //only if the current event is selected
-    if(isEventSelected) {
+    if (isEventSelected) {
       const jslogAttr = event.getAttribute("jslog");
 
       if (!jslogAttr) {
@@ -179,38 +176,39 @@ function deselectAllEvents() {
 
       //deselect visually and internally
       event.style.backgroundColor = event.style.borderColor;
-      selected = selected.filter(
-      (filterEventId) => filterEventId !== eventId);
+      selected = selected.filter((filterEventId) => filterEventId !== eventId);
       event.classList.remove("gc-bulk-selected");
-    
+
       //update selected counter on left sidebar of GC
       let counterElem = document.querySelector(".gc-selected-counter");
       counterElem.textContent = "Selected Events: " + selected.length;
     }
-
-
   });
 }
 
 function handleKeyDown(e) {
   if (e.key === "Alt") altPressed = true;
-  if (e.key === "a") aPressed = true; 
+  if (e.key === "a") aPressed = true;
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
 
   //deselect all logic
-  if(altPressed && aPressed && selected.length > 0) deselectAllEvents();
+  if (altPressed && aPressed && selected.length > 0) deselectAllEvents();
 
   //delete events logic
-  if ((e.key === "Delete" || e.key === "Backspace") && altPressed && selected.length > 0) {
+  if (
+    (e.key === "Delete" || e.key === "Backspace") &&
+    altPressed &&
+    selected.length > 0
+  ) {
     //reset all key presses, because confirm boxes block the JS thread, so browser does not fire keyup to reset them
     altPressed = false;
     sPressed = false;
     aPressed = false;
     bPressed = false;
     shiftPressed = false;
-    
+
     deleteSelectedEvents();
   }
 
@@ -227,8 +225,8 @@ function handleKeyDown(e) {
   }
 
   if (altPressed && bPressed && selected.length > 0) {
-    if(minutesDialogOpen) {
-      if(minutesDialogOverlay) {
+    if (minutesDialogOpen) {
+      if (minutesDialogOverlay) {
         document.body.removeChild(minutesDialogOverlay);
         minutesDialogOverlay = null;
       }
@@ -271,7 +269,9 @@ function showMinutesInputDialog() {
   `;
 
   const label = document.createElement("div");
-  label.textContent = `Move ${selected.length} event${selected.length > 1 ? "s" : ""} by how many minutes?`;
+  label.textContent = `Move ${selected.length} event${
+    selected.length > 1 ? "s" : ""
+  } by how many minutes?`;
   label.style.cssText = `margin-bottom: 10px; font-size: 14px; color: #333;`;
 
   const input = document.createElement("input");
@@ -354,7 +354,6 @@ function showMinutesInputDialog() {
   input.focus();
 }
 
-
 function handleKeyUp(e) {
   if (e.key === "Alt") {
     altPressed = false;
@@ -366,7 +365,7 @@ function handleKeyUp(e) {
   if (e.key === "Shift") {
     shiftPressed = false;
   }
-  
+
   if (e.key === "a") {
     aPressed = false;
   }
@@ -438,14 +437,15 @@ async function deleteSelectedEvents() {
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
         { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" }
       );
+
       if (!eventResponse.ok) {
-        // console.error(
-        //   `Failed to delete event ${eventId}:`,
-        //   eventResponse.statusText
-        // );
+        alert(
+          `Failed to delete event(s). Are you logged into Google Calendar Bulk Edit Extension on the correct email for this calendar? `
+        );
+        return;
       }
     } catch (error) {
-      // console.error(`Error deleting event ${eventId}:`, error);
+      console.error(`Error deleting event ${eventId}:`, error);
     }
   }
 
@@ -473,7 +473,12 @@ async function moveSelectedEventsByMinutes(minutes) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      if (!eventResponse.ok) continue;
+      if (!eventResponse.ok) {
+        alert(
+          `Failed to move event(s). Are you logged into Google Calendar Bulk Edit Extension on the correct email for this calendar? `
+        );
+        return;
+      }
 
       const event = await eventResponse.json();
       const startTime = new Date(event.start.dateTime || event.start.date);
@@ -538,19 +543,16 @@ function initializeExtension() {
       counterElem.classList.add("gc-selected-counter");
 
       counterElem.style.margin = "0 auto";
-      counterElem.style.border = "0.1em solid white"
+      counterElem.style.border = "0.1em solid white";
       counterElem.style.padding = "0.5em";
       counterElem.style.fontSize = "1rem";
       counterElem.style.fontWeight = "bold";
       counterElem.style.color = "white";
-      counterElem.textContent = "Selected Events: 0"
+      counterElem.textContent = "Selected Events: 0";
 
       elemBeforeCounter.insertAdjacentElement("afterend", counterElem);
     }
   }
-
-
-
 }
 
 initializeExtension();
