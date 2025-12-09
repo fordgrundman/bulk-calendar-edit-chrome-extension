@@ -123,6 +123,10 @@ function finishMarqueeSelection() {
     }
   });
 
+  //update selected counter on left sidebar of GC
+  let counterElem = document.querySelector(".gc-selected-counter");
+  counterElem.textContent = "Selected Events: " + selected.length;
+
   selectionBox.remove();
   selectionBox = null;
 }
@@ -148,7 +152,7 @@ function deselectAllEvents() {
   console.log("calling deselect");
 
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
-  
+
   gcEvents.forEach((event) => {
     const isEventSelected = event.classList.contains("gc-bulk-selected");
 
@@ -173,7 +177,12 @@ function deselectAllEvents() {
       (filterEventId) => filterEventId !== eventId);
       event.classList.remove("gc-bulk-selected");
     
+      //update selected counter on left sidebar of GC
+      let counterElem = document.querySelector(".gc-selected-counter");
+      counterElem.textContent = "Selected Events: " + selected.length;
     }
+
+
   });
 }
 
@@ -512,6 +521,28 @@ function initializeExtension() {
   document.addEventListener("mouseup", handleMouseUp);
   document.addEventListener("keydown", handleKeyDown);
   document.addEventListener("keyup", handleKeyUp);
+
+  //create the counter element in sidebar
+  const elemBeforeCounter = document.querySelector(".qOsM1d.wBon4c");
+
+  if (elemBeforeCounter) {
+    let counterElem = document.querySelector(".gc-selected-counter");
+    if (!counterElem) {
+      counterElem = document.createElement("div");
+      counterElem.classList.add("gc-selected-counter");
+
+      counterElem.style.margin = "0 auto";
+      counterElem.style.border = "0.1em solid white";
+      counterElem.style.padding = "0.5em";
+      counterElem.style.fontSize = "1rem";
+      counterElem.style.fontWeight = "bold";
+      counterElem.style.color = "white";
+      counterElem.textContent = "Selected Events: 0"
+
+      elemBeforeCounter.insertAdjacentElement("afterend", counterElem);
+    }
+  }
+
 }
 
 initializeExtension();
