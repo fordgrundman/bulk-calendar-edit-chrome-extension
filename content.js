@@ -1,3 +1,4 @@
+//---------------------------------- GLOBAL STATE ----------------------------------
 let isSelecting = false;
 let startX, startY;
 let selectionBox;
@@ -14,7 +15,35 @@ let draggedEventId = null;
 let minutesDialogOverlay = null;
 let minutesDialogOpen = false;
 
-//check if our selection box overlaps with any event rects
+const head = document.head;
+
+//----------------------------- DARK MODE DETECTOR START ----------------------------
+function detectTheme() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return "light";
+  return meta.content;
+}
+
+// Watch for theme changes
+const themeObserver = new MutationObserver(() => {
+  const isDark = detectTheme() === "#1B1B1B";
+
+  const counterElem = document.querySelector(".gc-selected-counter");
+  if (counterElem) {
+    counterElem.style.border =
+      "0.1em solid " + (isDark ? "#F8FAFD" : "#1B1B1B");
+    counterElem.style.color = isDark ? "#F8FAFD" : "#1B1B1B";
+  }
+});
+
+themeObserver.observe(head, {
+  attributes: true,
+  subtree: true,
+  attributes: true,
+});
+//----------------------------- DARK MODE DETECTOR END ------------------------------
+
+//---------------------------------- SELECTION LOGIC --------------------------------
 function isOverlapping(rectA, rectB) {
   return (
     rectA.left < rectB.right &&
@@ -24,26 +53,20 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
-//load highlight color from chrome.storage
+// Load highlight color from chrome.storage
 chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
   window.highlightColor = highlightColor || "red";
 });
 
-//get live updates from background
+// Receive updates from background
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "HIGHLIGHT_COLOR_UPDATED") {
-    window.highlightColor = msg.color; //set selection/highlight color passed from popup.js -> background.js -> content.js (here)
-  }
-
-  //update counter color
-  let counterElem = document.querySelector(".gc-selected-counter");
-  if (counterElem) {
-    counterElem.style.border = "0.1em solid " + msg.color;
+    window.highlightColor = msg.color;
   }
 });
 
+/--------------------------------- MARQUEE SELECTION --------------------------------/;
 function startMarqueeSelection(e) {
-  //remove any pre-existing selection box from the DOM if one already exists
   if (selectionBox) {
     selectionBox.remove();
     selectionBox = null;
@@ -128,7 +151,6 @@ function finishMarqueeSelection() {
     }
   });
 
-  //update selected counter on left sidebar of GC
   let counterElem = document.querySelector(".gc-selected-counter");
   counterElem.textContent = "Selected Events: " + selected.length;
 
@@ -136,6 +158,7 @@ function finishMarqueeSelection() {
   selectionBox = null;
 }
 
+//---------------------------------- MOUSE HANDLERS ----------------------------------
 function handleMouseDown(e) {
   if (e.button === 1 && altPressed) {
     startMarqueeSelection(e);
@@ -151,41 +174,39 @@ function handleMouseDown(e) {
   }
 }
 
-function deselectAllEvents() {
-  console.log("calling deselect");
+function handleMouseMove(e) {
+  window.lastMouseX = e.pageX;
+  window.lastMouseY = e.pageY;
 
-  const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+  if (isDragging) {
+    document.body.style.cursor = "move";
+    e.preventDefault();
+    return;
+  }
 
-  gcEvents.forEach((event) => {
-    const isEventSelected = event.classList.contains("gc-bulk-selected");
-
-    //only if the current event is selected
-    if (isEventSelected) {
-      const jslogAttr = event.getAttribute("jslog");
-
-      if (!jslogAttr) {
-        return;
-      }
-
-      const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
-      const eventId = match ? match[1] : null;
-
-      if (!eventId) {
-        return;
-      }
-
-      //deselect visually and internally
-      event.style.backgroundColor = event.style.borderColor;
-      selected = selected.filter((filterEventId) => filterEventId !== eventId);
-      event.classList.remove("gc-bulk-selected");
-
-      //update selected counter on left sidebar of GC
-      let counterElem = document.querySelector(".gc-selected-counter");
-      counterElem.textContent = "Selected Events: " + selected.length;
-    }
-  });
+  updateSelectionBox(e);
 }
 
+function handleMouseUp(e) {
+  if (isDragging) {
+    const deltaY = e.pageY - dragStartY;
+    const steps = Math.round(deltaY / 12);
+    const minutes = steps * 15;
+
+    if (minutes !== 0) moveSelectedEventsByMinutes(minutes);
+
+    isDragging = false;
+    draggedEventId = null;
+    document.body.style.cursor = "";
+    return;
+  }
+
+  if (isSelecting && !isKeyboardSelecting) {
+    finishMarqueeSelection();
+  }
+}
+
+//---------------------------------- KEYBOARD HANDLERS -------------------------------
 function handleKeyDown(e) {
   if (e.key === "Alt") altPressed = true;
   if (e.key === "a") aPressed = true;
@@ -193,16 +214,13 @@ function handleKeyDown(e) {
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
 
-  //deselect all logic
   if (altPressed && aPressed && selected.length > 0) deselectAllEvents();
 
-  //delete events logic
   if (
     (e.key === "Delete" || e.key === "Backspace") &&
     altPressed &&
     selected.length > 0
   ) {
-    //reset all key presses, because confirm boxes block the JS thread, so browser does not fire keyup to reset them
     altPressed = false;
     sPressed = false;
     aPressed = false;
@@ -232,7 +250,6 @@ function handleKeyDown(e) {
       }
       minutesDialogOpen = false;
     } else {
-      //dialog is closed -> open it
       showMinutesInputDialog();
     }
 
@@ -240,6 +257,64 @@ function handleKeyDown(e) {
   }
 }
 
+function handleKeyUp(e) {
+  if (e.key === "Alt") {
+    altPressed = false;
+  }
+  if (e.key === "s" || e.key === "S") {
+    sPressed = false;
+  }
+
+  if (e.key === "Shift") {
+    shiftPressed = false;
+  }
+
+  if (e.key === "a") {
+    aPressed = false;
+  }
+  if (e.key === "b" || e.key === "B") {
+    bPressed = false;
+  }
+
+  if (isKeyboardSelecting && (!altPressed || !sPressed)) {
+    finishMarqueeSelection();
+  }
+}
+
+//---------------------------------- DESELECT LOGIC ----------------------------------
+function deselectAllEvents() {
+  console.log("calling deselect");
+
+  const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
+
+  gcEvents.forEach((event) => {
+    const isEventSelected = event.classList.contains("gc-bulk-selected");
+
+    if (isEventSelected) {
+      const jslogAttr = event.getAttribute("jslog");
+
+      if (!jslogAttr) {
+        return;
+      }
+
+      const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
+      const eventId = match ? match[1] : null;
+
+      if (!eventId) {
+        return;
+      }
+
+      event.style.backgroundColor = event.style.borderColor;
+      selected = selected.filter((filterEventId) => filterEventId !== eventId);
+      event.classList.remove("gc-bulk-selected");
+
+      let counterElem = document.querySelector(".gc-selected-counter");
+      counterElem.textContent = "Selected Events: " + selected.length;
+    }
+  });
+}
+
+//---------------------------------- MOVE EVENT POPUP ---------------------------------
 function showMinutesInputDialog() {
   minutesDialogOpen = true;
 
@@ -354,70 +429,13 @@ function showMinutesInputDialog() {
   input.focus();
 }
 
-function handleKeyUp(e) {
-  if (e.key === "Alt") {
-    altPressed = false;
-  }
-  if (e.key === "s" || e.key === "S") {
-    sPressed = false;
-  }
-
-  if (e.key === "Shift") {
-    shiftPressed = false;
-  }
-
-  if (e.key === "a") {
-    aPressed = false;
-  }
-  if (e.key === "b" || e.key === "B") {
-    bPressed = false;
-  }
-
-  if (isKeyboardSelecting && (!altPressed || !sPressed)) {
-    finishMarqueeSelection();
-  }
-}
-
-function handleMouseMove(e) {
-  window.lastMouseX = e.pageX;
-  window.lastMouseY = e.pageY;
-
-  if (isDragging) {
-    document.body.style.cursor = "move";
-    e.preventDefault();
-    return;
-  }
-
-  updateSelectionBox(e);
-}
-
-function handleMouseUp(e) {
-  if (isDragging) {
-    const deltaY = e.pageY - dragStartY;
-    const steps = Math.round(deltaY / 12);
-    const minutes = steps * 15;
-
-    if (minutes !== 0) moveSelectedEventsByMinutes(minutes);
-
-    isDragging = false;
-    draggedEventId = null;
-    document.body.style.cursor = "";
-    return;
-  }
-
-  if (isSelecting && !isKeyboardSelecting) {
-    finishMarqueeSelection();
-  }
-}
-
+//---------------------------------- DELETE EVENTS -----------------------------------
 async function deleteSelectedEvents() {
-  //pop up an alert/confirm box to verify user really wants to delete the selected events
   const confirmedDelete = confirm(
     "Are you sure you want to delete the selected events? This action can not be undone."
   );
 
   if (!confirmedDelete) return;
-
   if (selected.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
@@ -452,6 +470,7 @@ async function deleteSelectedEvents() {
   window.location.reload();
 }
 
+//---------------------------------- MOVE EVENTS LOGIC -------------------------------
 async function moveSelectedEventsByMinutes(minutes) {
   if (selected.length === 0) return;
 
@@ -519,13 +538,14 @@ async function moveSelectedEventsByMinutes(minutes) {
         }
       );
     } catch (error) {
-      // console.error(`Error processing event ${eventId}:`, error);
+      // error intentionally ignored
     }
   }
 
   window.location.reload();
 }
 
+//---------------------------------- INITIALIZATION ----------------------------------
 function initializeExtension() {
   document.addEventListener("mousedown", handleMouseDown);
   document.addEventListener("mousemove", handleMouseMove);
@@ -533,8 +553,10 @@ function initializeExtension() {
   document.addEventListener("keydown", handleKeyDown);
   document.addEventListener("keyup", handleKeyUp);
 
-  //create the counter element in sidebar
   const elemBeforeCounter = document.querySelector(".qOsM1d.wBon4c");
+
+  const currentTheme = detectTheme();
+  const isDark = currentTheme === "#1B1B1B";
 
   if (elemBeforeCounter) {
     let counterElem = document.querySelector(".gc-selected-counter");
@@ -551,13 +573,17 @@ function initializeExtension() {
       counterElem.textContent = "Selected Events: 0";
 
       elemBeforeCounter.insertAdjacentElement("afterend", counterElem);
+    } else {
+      counterElem.style.border =
+        "0.1em solid " + (isDark ? "#F8FAFD" : "#1B1B1B");
+      counterElem.style.color = isDark ? "#F8FAFD" : "#1B1B1B";
     }
   }
 }
 
 initializeExtension();
 
-//ensure the drag/select logic never dies when Calendar rerenders
+//---------------------------------- DOM OBSERVER (RE-INIT) --------------------------
 const observer = new MutationObserver(() => {
   initializeExtension();
 });
