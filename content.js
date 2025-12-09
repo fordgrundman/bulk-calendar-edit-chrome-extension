@@ -10,6 +10,8 @@ let bPressed = false;
 let isDragging = false;
 let dragStartY = 0;
 let draggedEventId = null;
+let minutesDialogOverlay = null;
+let minutesDialogOpen = false;
 
 //check if our selection box overlaps with any event rects
 function isOverlapping(rectA, rectB) {
@@ -146,7 +148,13 @@ function handleKeyDown(e) {
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
-  if ((e.key === "Delete" || e.key === "Backspace") && shiftPressed && selected.length > 0) {
+  if ((e.key === "Delete" || e.key === "Backspace") && altPressed && selected.length > 0) {
+    //reset all key presses, because confirm boxes block the JS thread, so browser does not fire keyup to reset them
+    altPressed = false;
+    sPressed = false;
+    bPressed = false;
+    shiftPressed = false;
+    
     deleteSelectedEvents();
   }
 
@@ -162,14 +170,28 @@ function handleKeyDown(e) {
     e.preventDefault();
   }
 
-  if (shiftPressed && bPressed && selected.length > 0) {
-    showMinutesInputDialog();
+  if (altPressed && bPressed && selected.length > 0) {
+    if(minutesDialogOpen) {
+      if(minutesDialogOverlay) {
+        document.body.removeChild(minutesDialogOverlay);
+        minutesDialogOverlay = null;
+      }
+      minutesDialogOpen = false;
+    } else {
+      //dialog is closed -> open it
+      showMinutesInputDialog();
+    }
+
     e.preventDefault();
   }
 }
 
 function showMinutesInputDialog() {
+  minutesDialogOpen = true;
+
   const overlay = document.createElement("div");
+  minutesDialogOverlay = overlay;
+
   overlay.style.cssText = `
     position: fixed;
     top: 0;
@@ -193,9 +215,7 @@ function showMinutesInputDialog() {
   `;
 
   const label = document.createElement("div");
-  label.textContent = `Move ${selected.length} event${
-    selected.length > 1 ? "s" : ""
-  } by how many minutes?`;
+  label.textContent = `Move ${selected.length} event${selected.length > 1 ? "s" : ""} by how many minutes?`;
   label.style.cssText = `margin-bottom: 10px; font-size: 14px; color: #333;`;
 
   const input = document.createElement("input");
@@ -237,19 +257,33 @@ function showMinutesInputDialog() {
     font-size: 14px;
   `;
 
-  const handleSubmit = () => {
+  const handleClose = () => {
+    if (minutesDialogOverlay) {
+      document.body.removeChild(minutesDialogOverlay);
+      minutesDialogOverlay = null;
+    }
+    minutesDialogOpen = false;
+  };
+
+  submitBtn.addEventListener("click", () => {
     const minutes = parseInt(input.value);
     if (!isNaN(minutes) && minutes !== 0) {
       moveSelectedEventsByMinutes(minutes);
-      document.body.removeChild(overlay);
     }
-  };
+    handleClose();
+  });
 
-  submitBtn.addEventListener("click", handleSubmit);
-  cancelBtn.addEventListener("click", () => document.body.removeChild(overlay));
+  cancelBtn.addEventListener("click", handleClose);
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") handleSubmit();
-    if (e.key === "Escape") document.body.removeChild(overlay);
+    if (e.key === "Enter") {
+      const minutes = parseInt(input.value);
+      if (!isNaN(minutes) && minutes !== 0) {
+        moveSelectedEventsByMinutes(minutes);
+      }
+      handleClose();
+    }
+    if (e.key === "Escape") handleClose();
   });
 
   buttonsDiv.appendChild(submitBtn);
@@ -257,11 +291,13 @@ function showMinutesInputDialog() {
   dialog.appendChild(label);
   dialog.appendChild(input);
   dialog.appendChild(buttonsDiv);
+
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
   input.focus();
 }
+
 
 function handleKeyUp(e) {
   if (e.key === "Alt") {
