@@ -65,8 +65,21 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-/--------------------------------- MARQUEE SELECTION --------------------------------/;
+//-----------------------------MAKING SURE WE ARE ON THE CALENDAR GRID ------------------
+
+function checkIfCalendarView() {
+  return (
+    document.querySelector("#YPCqFe > div.mXmivb.ogB5bf.u4s1Oc.j0nwNb") !== null
+  );
+}
+
+//--------------------------------- MARQUEE SELECTION --------------------------------
 function startMarqueeSelection(e) {
+  if (!checkIfCalendarView()) {
+    isKeyboardSelecting = false;
+    return;
+  }
+
   if (selectionBox) {
     selectionBox.remove();
     selectionBox = null;
@@ -152,7 +165,9 @@ function finishMarqueeSelection() {
   });
 
   let counterElem = document.querySelector(".gc-selected-counter");
-  counterElem.textContent = "Selected Events: " + selected.length;
+  if (counterElem) {
+    counterElem.textContent = "Selected Events: " + selected.length;
+  }
 
   selectionBox.remove();
   selectionBox = null;
@@ -163,14 +178,6 @@ function handleMouseDown(e) {
   if (e.button === 1 && altPressed) {
     startMarqueeSelection(e);
     return;
-  }
-
-  if (
-    e.button === 0 &&
-    !isSelecting &&
-    !isKeyboardSelecting &&
-    selected.length > 0
-  ) {
   }
 }
 
@@ -283,6 +290,8 @@ function handleKeyUp(e) {
 
 //---------------------------------- DESELECT LOGIC ----------------------------------
 function deselectAllEvents() {
+  if (!checkIfCalendarView()) return;
+
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
   gcEvents.forEach((event) => {
@@ -311,11 +320,15 @@ function deselectAllEvents() {
   //as a failsafe, just reset selected anyways
   selected = [];
   let counterElem = document.querySelector(".gc-selected-counter");
-  counterElem.textContent = "Selected Events: " + selected.length;
+  if (counterElem) {
+    counterElem.textContent = "Selected Events: " + selected.length;
+  }
 }
 
 //---------------------------------- MOVE EVENT POPUP ---------------------------------
 function showMinutesInputDialog() {
+  if (!checkIfCalendarView()) return;
+
   minutesDialogOpen = true;
 
   const overlay = document.createElement("div");
@@ -431,6 +444,8 @@ function showMinutesInputDialog() {
 
 //---------------------------------- DELETE EVENTS -----------------------------------
 async function deleteSelectedEvents() {
+  if (!checkIfCalendarView()) return;
+
   const confirmedDelete = confirm(
     "Are you sure you want to delete the selected events? This action can not be undone."
   );
@@ -470,6 +485,7 @@ async function deleteSelectedEvents() {
 
 //---------------------------------- MOVE EVENTS LOGIC -------------------------------
 async function moveSelectedEventsByMinutes(minutes) {
+  if (!checkIfCalendarView()) return;
   if (selected.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
