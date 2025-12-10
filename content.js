@@ -578,7 +578,7 @@ function initializeExtension() {
       counterElem = document.createElement("div");
       counterElem.classList.add("gc-selected-counter");
 
-      counterElem.style.margin = "0 auto";
+      counterElem.style.margin = "0.5rem auto";
       counterElem.style.border = "0.1em solid white";
       counterElem.style.padding = "0.5em";
       counterElem.style.fontSize = "1rem";
