@@ -1,0 +1,8 @@
+TO FIX:
+	-slow deletion and moving times??
+	prevent usage on settings page/non calendar view page. I think we can do this by checking for existence of certain elements, since on SPA they will be unrendered if not in view like in settings
+
+TO ADD:
+	-Bulk Copy/Paste & Duplicate
+	-UNDO BUTTON
+	-BULK CREATE
