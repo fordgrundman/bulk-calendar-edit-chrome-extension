@@ -443,29 +443,26 @@ function showMinutesInputDialog() {
 }
 
 //---------------------------------- DELETE EVENTS -----------------------------------
-//---------------------------------- DELETE EVENTS WITH BATCH + OVERLAY -----------------------------------
+//---------------------------------- DELETE EVENTS -----------------------------------
 async function deleteSelectedEvents() {
   if (!checkIfCalendarView()) return;
 
   const confirmedDelete = confirm(
     "Are you sure you want to delete the selected events? This action cannot be undone."
   );
-
   if (!confirmedDelete) return;
   if (selected.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
   });
-
   if (!authResponse.authenticated) {
     alert("Please sign in first to delete events");
     return;
   }
-
   const token = authResponse.token;
 
-  // --- Create overlay ---
+  // overlay
   const overlay = document.createElement("div");
   overlay.id = "delete-events-overlay";
   overlay.style.position = "fixed";
@@ -478,7 +475,6 @@ async function deleteSelectedEvents() {
   overlay.style.justifyContent = "center";
   overlay.style.alignItems = "center";
   overlay.style.zIndex = 10000;
-
   const box = document.createElement("div");
   box.style.background = "white";
   box.style.color = "black";
@@ -487,103 +483,234 @@ async function deleteSelectedEvents() {
   box.style.fontSize = "18px";
   box.style.fontWeight = "bold";
   box.textContent = "Deleting Events... Please Wait";
-
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
-  // --- Helper: exponential backoff ---
-  const fetchWithRetry = async (url, options, retries = 3, delay = 500) => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const res = await fetch(url, options);
-        if (res.status === 410) {
-          // Already gone, treat as success
-          return;
+  const updateOverlayText = (text) => {
+    box.textContent = text;
+  };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isTransientStatus = (s) => s === 429 || (s >= 500 && s < 600);
+
+  // fetch all event details
+  const fetchEvent = async (eventId) => {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
         }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res;
-      } catch (err) {
-        if (i === retries - 1) throw err;
-        await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
+      );
+      if (res.status === 404 || res.status === 410)
+        return { id: eventId, gone: true };
+      if (!res.ok)
+        return { id: eventId, fetchStatus: res.status, idOnly: true };
+      const data = await res.json();
+      return {
+        id: eventId,
+        title: data.summary || "Untitled Event",
+        description: data.description || "",
+      };
+    } catch (err) {
+      return { id: eventId, fetchStatus: "network-error", idOnly: true };
+    }
+  };
+
+  const fetched = await Promise.all(selected.map(fetchEvent));
+
+  // delete single with aggressive retry (up to 15 attempts)
+  const deleteSingle = async (event, attemptNumber = 1) => {
+    const maxAttempts = 15;
+    let delay = 500 * Math.pow(1.5, attemptNumber - 1);
+
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      // Success cases
+      if (res.status === 410 || res.status === 404)
+        return { ok: true, skipped: false };
+      if (res.ok) return { ok: true, skipped: false };
+
+      // Get response body for all non-success cases
+      const responseText = await res.text();
+
+      // Check if 403 is a rate limit (should retry) or permission issue (should skip)
+      if (res.status === 403) {
+        try {
+          const errorData = JSON.parse(responseText);
+          const isRateLimit = errorData?.error?.errors?.some(
+            (e) =>
+              e.reason === "rateLimitExceeded" ||
+              e.reason === "userRateLimitExceeded"
+          );
+
+          if (isRateLimit) {
+            // Rate limit - treat as transient and retry with longer delay
+            console.warn(
+              `Rate limit hit for event ${event.title}, attempt ${attemptNumber}/${maxAttempts}`
+            );
+            if (attemptNumber < maxAttempts) {
+              await sleep(delay * 2); // Double delay for rate limits
+              return deleteSingle(event, attemptNumber + 1);
+            } else {
+              console.error(
+                `Max retries reached (rate limit) for event ${event.title}`
+              );
+              return {
+                ok: false,
+                skipped: false,
+                event,
+                status: res.status,
+                reason: "rate_limit_exceeded",
+                response: responseText,
+              };
+            }
+          } else {
+            // True permission denial - skip
+            console.log(`Skipping event (403 - no permission): ${event.title}`);
+            console.log("API error response:", responseText);
+            return { ok: true, skipped: true };
+          }
+        } catch (e) {
+          // Can't parse response, assume permission issue and skip
+          console.log(
+            `Skipping event (403 - unparseable response): ${event.title}`
+          );
+          return { ok: true, skipped: true };
+        }
+      }
+
+      // Transient errors - retry
+      if (isTransientStatus(res.status)) {
+        console.warn(
+          `Transient error (${res.status}) for event ${event.title}, attempt ${attemptNumber}/${maxAttempts}`
+        );
+        if (attemptNumber < maxAttempts) {
+          await sleep(delay);
+          return deleteSingle(event, attemptNumber + 1);
+        } else {
+          console.error(
+            `Max retries reached for event ${event.title}, status: ${res.status}, response:`,
+            responseText
+          );
+          return {
+            ok: false,
+            skipped: false,
+            event,
+            status: res.status,
+            reason: "max_retries",
+            response: responseText,
+          };
+        }
+      } else {
+        // Other permanent errors
+        console.error(
+          `Permanent error (${res.status}) for event ${event.title}:`,
+          responseText
+        );
+        return {
+          ok: false,
+          skipped: false,
+          event,
+          status: res.status,
+          reason: "permanent",
+          response: responseText,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        `Network error for event ${event.title}, attempt ${attemptNumber}/${maxAttempts}:`,
+        err
+      );
+      if (attemptNumber < maxAttempts) {
+        await sleep(delay);
+        return deleteSingle(event, attemptNumber + 1);
+      } else {
+        console.error(
+          `Max retries reached for event ${event.title} (network error):`,
+          err
+        );
+        return {
+          ok: false,
+          skipped: false,
+          event,
+          error: err,
+          reason: "max_retries",
+        };
       }
     }
   };
 
-  try {
-    // --- Split selected events into batches of ≤50 ---
-    const batchSize = 50;
-    const batches = [];
-    for (let i = 0; i < selected.length; i += batchSize) {
-      batches.push(selected.slice(i, i + batchSize));
-    }
+  // Process all events
+  const validEvents = fetched.filter((ev) => !ev.gone && !ev.fetchStatus);
 
-    const deleteBatch = async (eventBatch) => {
-      const boundary = "batch_boundary_" + Date.now();
-      let batchBody = "";
+  const CONCURRENCY = 12;
+  const deleteResults = [];
+  let processed = 0;
 
-      eventBatch.forEach((eventId) => {
-        batchBody += `--${boundary}\r\n`;
-        batchBody += "Content-Type: application/http\r\n";
-        batchBody += "Content-Transfer-Encoding: binary\r\n\r\n";
-        batchBody += `DELETE /calendar/v3/calendars/primary/events/${eventId} HTTP/1.1\r\n\r\n`;
-      });
+  for (let i = 0; i < validEvents.length; i += CONCURRENCY) {
+    const slice = validEvents.slice(i, i + CONCURRENCY);
+    updateOverlayText(`Deleting Events... ${processed}/${validEvents.length}`);
+    const sliceResults = await Promise.all(slice.map((e) => deleteSingle(e)));
+    deleteResults.push(...sliceResults);
+    processed += slice.length;
+  }
 
-      batchBody += `--${boundary}--`;
+  // Only count actual failures (not skipped/permission-denied)
+  const failures = deleteResults.filter((r) => !r.ok);
+  const successes = deleteResults.filter((r) => r.ok && !r.skipped);
+  const skipped = deleteResults.filter((r) => r.ok && r.skipped);
 
-      const res = await fetchWithRetry(
-        "https://www.googleapis.com/batch/calendar/v3",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": `multipart/mixed; boundary=${boundary}`,
-          },
-          body: batchBody,
-        }
+  // Log summary
+  console.log("=== DELETE OPERATION SUMMARY ===");
+  console.log(`Total events processed: ${deleteResults.length}`);
+  console.log(`Successfully deleted: ${successes.length}`);
+  console.log(`Skipped (no permission): ${skipped.length}`);
+  console.log(`Failed: ${failures.length}`);
+  console.log("Detailed results:", deleteResults);
+
+  // Remove overlay
+  const existingOverlay = document.getElementById("delete-events-overlay");
+  if (existingOverlay) existingOverlay.remove();
+
+  // Handle results
+  if (failures.length > 0) {
+    const failureList = failures.map((f) => `- ${f.event.title}`).join("\n");
+    alert(
+      `Failed to delete ${failures.length} event(s) after multiple retries:\n${failureList}\n\n` +
+        `These events could not be deleted and will remain on your calendar. ` +
+        `Please try again later or delete them manually.`
+    );
+    console.error("Delete failures:", failures);
+    // Do NOT reload - events failed to delete
+  } else {
+    // All operations completed successfully (owned events deleted, non-owned skipped)
+    if (successes.length > 0) {
+      alert(
+        `Successfully deleted ${successes.length} event(s).${
+          skipped.length > 0
+            ? ` (${skipped.length} skipped - no permission)`
+            : ""
+        }`
       );
-
-      const text = await res.text();
-
-      // Simple failed detection: if batch response doesn't contain event id
-      const failedEvents = [];
-      eventBatch.forEach((eventId) => {
-        if (!text.includes(eventId)) failedEvents.push(eventId);
-      });
-
-      return failedEvents;
-    };
-
-    let failedEvents = [];
-    for (const batch of batches) {
-      const failed = await deleteBatch(batch);
-      failedEvents.push(...failed);
+      window.location.reload();
+    } else {
+      // All events were skipped (none owned)
+      alert(
+        "No events were deleted. You don't have permission to delete the selected events."
+      );
     }
-
-    // --- Retry failed deletes individually ---
-    for (const eventId of failedEvents) {
-      try {
-        await fetchWithRetry(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-          {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-      } catch (err) {
-        console.error("Failed to delete event after retry:", eventId, err);
-      }
-    }
-
-    // --- Reload page when done ---
-    window.location.reload();
-  } finally {
-    // Remove overlay regardless of success/failure
-    const existingOverlay = document.getElementById("delete-events-overlay");
-    if (existingOverlay) existingOverlay.remove();
   }
 }
 
-//---------------------------------- MOVE EVENTS -----------------------------------
+// -----------------------------MOVE EVENTS---------- ---------------------------------------
 async function moveSelectedEventsByMinutes(minutes) {
   if (!checkIfCalendarView()) return;
   if (selected.length === 0) return;
@@ -591,15 +718,13 @@ async function moveSelectedEventsByMinutes(minutes) {
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
   });
-
   if (!authResponse.authenticated) {
     alert("Please sign in first to move events");
     return;
   }
-
   const token = authResponse.token;
 
-  // --- Create overlay ---
+  // overlay
   const overlay = document.createElement("div");
   overlay.id = "move-events-overlay";
   overlay.style.position = "fixed";
@@ -612,7 +737,6 @@ async function moveSelectedEventsByMinutes(minutes) {
   overlay.style.justifyContent = "center";
   overlay.style.alignItems = "center";
   overlay.style.zIndex = 10000;
-
   const box = document.createElement("div");
   box.style.background = "white";
   box.style.color = "black";
@@ -621,166 +745,277 @@ async function moveSelectedEventsByMinutes(minutes) {
   box.style.fontSize = "18px";
   box.style.fontWeight = "bold";
   box.textContent = "Moving Events... Please Wait";
-
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
-  // --- Helper: exponential backoff ---
-  const fetchWithRetry = async (url, options, retries = 3, delay = 500) => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const res = await fetch(url, options);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res;
-      } catch (err) {
-        if (i === retries - 1) throw err;
-        await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
+  const updateOverlayText = (text) => {
+    box.textContent = text;
+  };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isTransientStatus = (s) => s === 429 || (s >= 500 && s < 600);
+
+  // fetch event details up-front
+  const fetchEvent = async (eventId) => {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (res.status === 404 || res.status === 410)
+        return { id: eventId, gone: true };
+      if (!res.ok)
+        return { id: eventId, fetchStatus: res.status, idOnly: true };
+      const data = await res.json();
+      return {
+        id: eventId,
+        summary: data.summary || "Untitled Event",
+        description: data.description || "",
+        start: data.start,
+        end: data.end,
+      };
+    } catch (err) {
+      return { id: eventId, fetchStatus: "network-error", idOnly: true };
+    }
+  };
+
+  const fetched = await Promise.all(selected.map(fetchEvent));
+
+  // Move single event with aggressive retry (up to 15 attempts)
+  const moveSingle = async (event, attemptNumber = 1) => {
+    const maxAttempts = 15;
+
+    // validate start/end
+    const startTime = new Date(
+      event.start?.dateTime || event.start?.date || NaN
+    );
+    const endTime = new Date(event.end?.dateTime || event.end?.date || NaN);
+    if (isNaN(startTime) || isNaN(endTime)) {
+      console.error(
+        `Invalid time for event ${event.summary}:`,
+        event.start,
+        event.end
+      );
+      return { ok: false, skipped: false, event, reason: "invalid_time" };
+    }
+
+    startTime.setMinutes(startTime.getMinutes() + minutes);
+    endTime.setMinutes(endTime.getMinutes() + minutes);
+
+    const payload = {
+      start: {
+        dateTime: event.start?.dateTime ? startTime.toISOString() : undefined,
+        date:
+          event.start?.date && !event.start?.dateTime
+            ? startTime.toISOString().split("T")[0]
+            : undefined,
+        timeZone: event.start?.timeZone,
+      },
+      end: {
+        dateTime: event.end?.dateTime ? endTime.toISOString() : undefined,
+        date:
+          event.end?.date && !event.end?.dateTime
+            ? endTime.toISOString().split("T")[0]
+            : undefined,
+        timeZone: event.end?.timeZone,
+      },
+    };
+
+    let delay = 500 * Math.pow(1.5, attemptNumber - 1);
+
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      // Success cases
+      if (res.status === 404 || res.status === 410)
+        return { ok: true, skipped: false };
+      if (res.ok) return { ok: true, skipped: false };
+
+      // Get response body for all non-success cases
+      const responseText = await res.text();
+
+      // Check if 403 is a rate limit (should retry) or permission issue (should skip)
+      if (res.status === 403) {
+        try {
+          const errorData = JSON.parse(responseText);
+          const isRateLimit = errorData?.error?.errors?.some(
+            (e) =>
+              e.reason === "rateLimitExceeded" ||
+              e.reason === "userRateLimitExceeded"
+          );
+
+          if (isRateLimit) {
+            // Rate limit - treat as transient and retry with longer delay
+            console.warn(
+              `Rate limit hit for event ${event.summary}, attempt ${attemptNumber}/${maxAttempts}`
+            );
+            if (attemptNumber < maxAttempts) {
+              await sleep(delay * 2); // Double delay for rate limits
+              return moveSingle(event, attemptNumber + 1);
+            } else {
+              console.error(
+                `Max retries reached (rate limit) for event ${event.summary}`
+              );
+              return {
+                ok: false,
+                skipped: false,
+                event,
+                status: res.status,
+                reason: "rate_limit_exceeded",
+                response: responseText,
+              };
+            }
+          } else {
+            // True permission denial - skip
+            console.log(
+              `Skipping event (403 - no permission): ${event.summary}`
+            );
+            console.log("API error response:", responseText);
+            return { ok: true, skipped: true };
+          }
+        } catch (e) {
+          // Can't parse response, assume permission issue and skip
+          console.log(
+            `Skipping event (403 - unparseable response): ${event.summary}`
+          );
+          return { ok: true, skipped: true };
+        }
+      }
+
+      // Transient errors - retry
+      if (isTransientStatus(res.status)) {
+        console.warn(
+          `Transient error (${res.status}) for event ${event.summary}, attempt ${attemptNumber}/${maxAttempts}`
+        );
+        if (attemptNumber < maxAttempts) {
+          await sleep(delay);
+          return moveSingle(event, attemptNumber + 1);
+        } else {
+          console.error(
+            `Max retries reached for event ${event.summary}, status: ${res.status}, response:`,
+            responseText
+          );
+          return {
+            ok: false,
+            skipped: false,
+            event,
+            status: res.status,
+            reason: "max_retries",
+            response: responseText,
+          };
+        }
+      } else {
+        // Other permanent errors
+        console.error(
+          `Permanent error (${res.status}) for event ${event.summary}:`,
+          responseText
+        );
+        return {
+          ok: false,
+          skipped: false,
+          event,
+          status: res.status,
+          reason: "permanent",
+          response: responseText,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        `Network error for event ${event.summary}, attempt ${attemptNumber}/${maxAttempts}:`,
+        err
+      );
+      if (attemptNumber < maxAttempts) {
+        await sleep(delay);
+        return moveSingle(event, attemptNumber + 1);
+      } else {
+        console.error(
+          `Max retries reached for event ${event.summary} (network error):`,
+          err
+        );
+        return {
+          ok: false,
+          skipped: false,
+          event,
+          error: err,
+          reason: "max_retries",
+        };
       }
     }
   };
 
-  try {
-    // --- Fetch all events ---
-    const events = await Promise.all(
-      selected.map(async (eventId) => {
-        const res = await fetchWithRetry(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        return res.json();
-      })
+  // Process all valid events
+  const validEvents = fetched.filter((ev) => !ev.gone && !ev.fetchStatus);
+
+  const CONCURRENCY = 12;
+  const results = [];
+  let processed = 0;
+
+  for (let i = 0; i < validEvents.length; i += CONCURRENCY) {
+    const slice = validEvents.slice(i, i + CONCURRENCY);
+    updateOverlayText(`Moving Events... ${processed}/${validEvents.length}`);
+    const sliceResults = await Promise.all(slice.map((e) => moveSingle(e)));
+    results.push(...sliceResults);
+    processed += slice.length;
+  }
+
+  // Only count actual failures (not skipped/permission-denied)
+  const failures = results.filter((r) => !r.ok);
+  const successes = results.filter((r) => r.ok && !r.skipped);
+  const skipped = results.filter((r) => r.ok && r.skipped);
+
+  // Log summary
+  console.log("=== MOVE OPERATION SUMMARY ===");
+  console.log(`Total events processed: ${results.length}`);
+  console.log(`Successfully moved: ${successes.length}`);
+  console.log(`Skipped (no permission): ${skipped.length}`);
+  console.log(`Failed: ${failures.length}`);
+  console.log("Detailed results:", results);
+
+  // Remove overlay
+  const existingOverlay = document.getElementById("move-events-overlay");
+  if (existingOverlay) existingOverlay.remove();
+
+  // Handle results
+  if (failures.length > 0) {
+    const failureList = failures.map((f) => `- ${f.event.summary}`).join("\n");
+    alert(
+      `Failed to move ${failures.length} event(s) after multiple retries:\n${failureList}\n\n` +
+        `These events could not be moved and remain at their original times. ` +
+        `Please try again later or move them manually.`
     );
-
-    // --- Split into batches of ≤50 ---
-    const batchSize = 50;
-    const batches = [];
-    for (let i = 0; i < events.length; i += batchSize) {
-      batches.push(events.slice(i, i + batchSize));
-    }
-
-    // --- Move batch function ---
-    const moveBatch = async (eventBatch) => {
-      const boundary = "batch_boundary_" + Date.now();
-      let batchBody = "";
-
-      eventBatch.forEach((event) => {
-        const startTime = new Date(event.start.dateTime || event.start.date);
-        const endTime = new Date(event.end.dateTime || event.end.date);
-
-        startTime.setMinutes(startTime.getMinutes() + minutes);
-        endTime.setMinutes(endTime.getMinutes() + minutes);
-
-        const updatedEvent = {
-          start: {
-            dateTime: event.start.dateTime
-              ? startTime.toISOString()
-              : undefined,
-            date:
-              event.start.date && !event.start.dateTime
-                ? startTime.toISOString().split("T")[0]
-                : undefined,
-          },
-          end: {
-            dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
-            date:
-              event.end.date && !event.end.dateTime
-                ? endTime.toISOString().split("T")[0]
-                : undefined,
-          },
-        };
-
-        batchBody += `--${boundary}\r\n`;
-        batchBody += "Content-Type: application/http\r\n";
-        batchBody += "Content-Transfer-Encoding: binary\r\n\r\n";
-        batchBody += `PATCH /calendar/v3/calendars/primary/events/${event.id} HTTP/1.1\r\n`;
-        batchBody += "Content-Type: application/json; charset=UTF-8\r\n\r\n";
-        batchBody += JSON.stringify(updatedEvent) + "\r\n";
-      });
-
-      batchBody += `--${boundary}--`;
-
-      const res = await fetchWithRetry(
-        "https://www.googleapis.com/batch/calendar/v3",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": `multipart/mixed; boundary=${boundary}`,
-          },
-          body: batchBody,
-        }
+    console.error("Move failures:", failures);
+    // Do NOT reload - events failed to move
+  } else {
+    // All operations completed successfully (owned events moved, non-owned skipped)
+    if (successes.length > 0) {
+      alert(
+        `Successfully moved ${successes.length} event(s).${
+          skipped.length > 0
+            ? ` (${skipped.length} skipped - no permission)`
+            : ""
+        }`
       );
-
-      const text = await res.text();
-
-      // Simple failed detection: if batch response doesn't contain event id
-      const failedEvents = [];
-      eventBatch.forEach((event) => {
-        if (!text.includes(event.id)) failedEvents.push(event);
-      });
-
-      return failedEvents;
-    };
-
-    let failedEvents = [];
-    for (const batch of batches) {
-      const failed = await moveBatch(batch);
-      failedEvents.push(...failed);
+      window.location.reload();
+    } else {
+      // All events were skipped (none owned)
+      alert(
+        "No events were moved. You don't have permission to modify the selected events."
+      );
     }
-
-    // --- Retry failed events individually ---
-    for (const event of failedEvents) {
-      try {
-        const startTime = new Date(event.start.dateTime || event.start.date);
-        const endTime = new Date(event.end.dateTime || event.end.date);
-
-        startTime.setMinutes(startTime.getMinutes() + minutes);
-        endTime.setMinutes(endTime.getMinutes() + minutes);
-
-        const updatedEvent = {
-          start: {
-            dateTime: event.start.dateTime
-              ? startTime.toISOString()
-              : undefined,
-            date:
-              event.start.date && !event.start.dateTime
-                ? startTime.toISOString().split("T")[0]
-                : undefined,
-          },
-          end: {
-            dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
-            date:
-              event.end.date && !event.end.dateTime
-                ? endTime.toISOString().split("T")[0]
-                : undefined,
-          },
-        };
-
-        await fetchWithRetry(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.id}`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(updatedEvent),
-          }
-        );
-      } catch (err) {
-        console.error("Failed to move event after retry:", event.id, err);
-      }
-    }
-
-    // --- Reload page when done ---
-    window.location.reload();
-  } finally {
-    // Remove overlay regardless of success/failure
-    const existingOverlay = document.getElementById("move-events-overlay");
-    if (existingOverlay) existingOverlay.remove();
   }
 }
-
 //---------------------------------- INITIALIZATION ----------------------------------
 function initializeExtension() {
   document.addEventListener("mousedown", handleMouseDown);
