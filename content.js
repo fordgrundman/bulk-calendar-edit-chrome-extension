@@ -443,11 +443,12 @@ function showMinutesInputDialog() {
 }
 
 //---------------------------------- DELETE EVENTS -----------------------------------
+//---------------------------------- DELETE EVENTS WITH BATCH + OVERLAY -----------------------------------
 async function deleteSelectedEvents() {
   if (!checkIfCalendarView()) return;
 
   const confirmedDelete = confirm(
-    "Are you sure you want to delete the selected events? This action can not be undone."
+    "Are you sure you want to delete the selected events? This action cannot be undone."
   );
 
   if (!confirmedDelete) return;
@@ -457,33 +458,132 @@ async function deleteSelectedEvents() {
     type: "GET_AUTH_TOKEN",
   });
 
-  const token = authResponse.token;
-
   if (!authResponse.authenticated) {
     alert("Please sign in first to delete events");
     return;
   }
 
-  for (const eventId of selected) {
-    try {
-      const eventResponse = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-        { headers: { Authorization: `Bearer ${token}` }, method: "DELETE" }
+  const token = authResponse.token;
+
+  // --- Create overlay ---
+  const overlay = document.createElement("div");
+  overlay.id = "delete-events-overlay";
+  overlay.style.position = "fixed";
+  overlay.style.top = 0;
+  overlay.style.left = 0;
+  overlay.style.width = "100%";
+  overlay.style.height = "100%";
+  overlay.style.background = "rgba(0,0,0,0.5)";
+  overlay.style.display = "flex";
+  overlay.style.justifyContent = "center";
+  overlay.style.alignItems = "center";
+  overlay.style.zIndex = 10000;
+
+  const box = document.createElement("div");
+  box.style.background = "white";
+  box.style.color = "black";
+  box.style.padding = "20px 40px";
+  box.style.borderRadius = "8px";
+  box.style.fontSize = "18px";
+  box.style.fontWeight = "bold";
+  box.textContent = "Deleting Events... Please Wait";
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // --- Helper: exponential backoff ---
+  const fetchWithRetry = async (url, options, retries = 3, delay = 500) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(url, options);
+        if (res.status === 410) {
+          // Already gone, treat as success
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res;
+      } catch (err) {
+        if (i === retries - 1) throw err;
+        await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
+      }
+    }
+  };
+
+  try {
+    // --- Split selected events into batches of ≤50 ---
+    const batchSize = 50;
+    const batches = [];
+    for (let i = 0; i < selected.length; i += batchSize) {
+      batches.push(selected.slice(i, i + batchSize));
+    }
+
+    const deleteBatch = async (eventBatch) => {
+      const boundary = "batch_boundary_" + Date.now();
+      let batchBody = "";
+
+      eventBatch.forEach((eventId) => {
+        batchBody += `--${boundary}\r\n`;
+        batchBody += "Content-Type: application/http\r\n";
+        batchBody += "Content-Transfer-Encoding: binary\r\n\r\n";
+        batchBody += `DELETE /calendar/v3/calendars/primary/events/${eventId} HTTP/1.1\r\n\r\n`;
+      });
+
+      batchBody += `--${boundary}--`;
+
+      const res = await fetchWithRetry(
+        "https://www.googleapis.com/batch/calendar/v3",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": `multipart/mixed; boundary=${boundary}`,
+          },
+          body: batchBody,
+        }
       );
 
-      if (!eventResponse.ok) {
-        alert(
-          `Failed to delete event(s). Are you logged into Google Calendar Bulk Edit Extension on the correct email for this calendar? `
-        );
-        return;
-      }
-    } catch (error) {}
-  }
+      const text = await res.text();
 
-  window.location.reload();
+      // Simple failed detection: if batch response doesn't contain event id
+      const failedEvents = [];
+      eventBatch.forEach((eventId) => {
+        if (!text.includes(eventId)) failedEvents.push(eventId);
+      });
+
+      return failedEvents;
+    };
+
+    let failedEvents = [];
+    for (const batch of batches) {
+      const failed = await deleteBatch(batch);
+      failedEvents.push(...failed);
+    }
+
+    // --- Retry failed deletes individually ---
+    for (const eventId of failedEvents) {
+      try {
+        await fetchWithRetry(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch (err) {
+        console.error("Failed to delete event after retry:", eventId, err);
+      }
+    }
+
+    // --- Reload page when done ---
+    window.location.reload();
+  } finally {
+    // Remove overlay regardless of success/failure
+    const existingOverlay = document.getElementById("delete-events-overlay");
+    if (existingOverlay) existingOverlay.remove();
+  }
 }
 
-//---------------------------------- MOVE EVENTS LOGIC -------------------------------
+//---------------------------------- MOVE EVENTS -----------------------------------
 async function moveSelectedEventsByMinutes(minutes) {
   if (!checkIfCalendarView()) return;
   if (selected.length === 0) return;
@@ -499,64 +599,186 @@ async function moveSelectedEventsByMinutes(minutes) {
 
   const token = authResponse.token;
 
-  for (const eventId of selected) {
-    try {
-      const eventResponse = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+  // --- Create overlay ---
+  const overlay = document.createElement("div");
+  overlay.id = "move-events-overlay";
+  overlay.style.position = "fixed";
+  overlay.style.top = 0;
+  overlay.style.left = 0;
+  overlay.style.width = "100%";
+  overlay.style.height = "100%";
+  overlay.style.background = "rgba(0,0,0,0.5)";
+  overlay.style.display = "flex";
+  overlay.style.justifyContent = "center";
+  overlay.style.alignItems = "center";
+  overlay.style.zIndex = 10000;
 
-      if (!eventResponse.ok) {
-        alert(
-          `Failed to move event(s). Are you logged into Google Calendar Bulk Edit Extension on the correct email for this calendar? `
-        );
-        return;
+  const box = document.createElement("div");
+  box.style.background = "white";
+  box.style.color = "black";
+  box.style.padding = "20px 40px";
+  box.style.borderRadius = "8px";
+  box.style.fontSize = "18px";
+  box.style.fontWeight = "bold";
+  box.textContent = "Moving Events... Please Wait";
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // --- Helper: exponential backoff ---
+  const fetchWithRetry = async (url, options, retries = 3, delay = 500) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res;
+      } catch (err) {
+        if (i === retries - 1) throw err;
+        await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
       }
+    }
+  };
 
-      const event = await eventResponse.json();
-      const startTime = new Date(event.start.dateTime || event.start.date);
-      const endTime = new Date(event.end.dateTime || event.end.date);
+  try {
+    // --- Fetch all events ---
+    const events = await Promise.all(
+      selected.map(async (eventId) => {
+        const res = await fetchWithRetry(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        return res.json();
+      })
+    );
 
-      startTime.setMinutes(startTime.getMinutes() + minutes);
-      endTime.setMinutes(endTime.getMinutes() + minutes);
+    // --- Split into batches of ≤50 ---
+    const batchSize = 50;
+    const batches = [];
+    for (let i = 0; i < events.length; i += batchSize) {
+      batches.push(events.slice(i, i + batchSize));
+    }
 
-      const updatedEvent = {
-        ...event,
-        start: {
-          ...event.start,
-          dateTime: event.start.dateTime ? startTime.toISOString() : undefined,
-          date:
-            event.start.date && !event.start.dateTime
-              ? startTime.toISOString().split("T")[0]
+    // --- Move batch function ---
+    const moveBatch = async (eventBatch) => {
+      const boundary = "batch_boundary_" + Date.now();
+      let batchBody = "";
+
+      eventBatch.forEach((event) => {
+        const startTime = new Date(event.start.dateTime || event.start.date);
+        const endTime = new Date(event.end.dateTime || event.end.date);
+
+        startTime.setMinutes(startTime.getMinutes() + minutes);
+        endTime.setMinutes(endTime.getMinutes() + minutes);
+
+        const updatedEvent = {
+          start: {
+            dateTime: event.start.dateTime
+              ? startTime.toISOString()
               : undefined,
-        },
-        end: {
-          ...event.end,
-          dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
-          date:
-            event.end.date && !event.end.dateTime
-              ? endTime.toISOString().split("T")[0]
-              : undefined,
-        },
-      };
+            date:
+              event.start.date && !event.start.dateTime
+                ? startTime.toISOString().split("T")[0]
+                : undefined,
+          },
+          end: {
+            dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
+            date:
+              event.end.date && !event.end.dateTime
+                ? endTime.toISOString().split("T")[0]
+                : undefined,
+          },
+        };
 
-      await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        batchBody += `--${boundary}\r\n`;
+        batchBody += "Content-Type: application/http\r\n";
+        batchBody += "Content-Transfer-Encoding: binary\r\n\r\n";
+        batchBody += `PATCH /calendar/v3/calendars/primary/events/${event.id} HTTP/1.1\r\n`;
+        batchBody += "Content-Type: application/json; charset=UTF-8\r\n\r\n";
+        batchBody += JSON.stringify(updatedEvent) + "\r\n";
+      });
+
+      batchBody += `--${boundary}--`;
+
+      const res = await fetchWithRetry(
+        "https://www.googleapis.com/batch/calendar/v3",
         {
-          method: "PUT",
+          method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+            "Content-Type": `multipart/mixed; boundary=${boundary}`,
           },
-          body: JSON.stringify(updatedEvent),
+          body: batchBody,
         }
       );
-    } catch (error) {
-      // error intentionally ignored
-    }
-  }
 
-  window.location.reload();
+      const text = await res.text();
+
+      // Simple failed detection: if batch response doesn't contain event id
+      const failedEvents = [];
+      eventBatch.forEach((event) => {
+        if (!text.includes(event.id)) failedEvents.push(event);
+      });
+
+      return failedEvents;
+    };
+
+    let failedEvents = [];
+    for (const batch of batches) {
+      const failed = await moveBatch(batch);
+      failedEvents.push(...failed);
+    }
+
+    // --- Retry failed events individually ---
+    for (const event of failedEvents) {
+      try {
+        const startTime = new Date(event.start.dateTime || event.start.date);
+        const endTime = new Date(event.end.dateTime || event.end.date);
+
+        startTime.setMinutes(startTime.getMinutes() + minutes);
+        endTime.setMinutes(endTime.getMinutes() + minutes);
+
+        const updatedEvent = {
+          start: {
+            dateTime: event.start.dateTime
+              ? startTime.toISOString()
+              : undefined,
+            date:
+              event.start.date && !event.start.dateTime
+                ? startTime.toISOString().split("T")[0]
+                : undefined,
+          },
+          end: {
+            dateTime: event.end.dateTime ? endTime.toISOString() : undefined,
+            date:
+              event.end.date && !event.end.dateTime
+                ? endTime.toISOString().split("T")[0]
+                : undefined,
+          },
+        };
+
+        await fetchWithRetry(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(updatedEvent),
+          }
+        );
+      } catch (err) {
+        console.error("Failed to move event after retry:", event.id, err);
+      }
+    }
+
+    // --- Reload page when done ---
+    window.location.reload();
+  } finally {
+    // Remove overlay regardless of success/failure
+    const existingOverlay = document.getElementById("move-events-overlay");
+    if (existingOverlay) existingOverlay.remove();
+  }
 }
 
 //---------------------------------- INITIALIZATION ----------------------------------
