@@ -9,7 +9,6 @@ let sPressed = false;
 let aPressed = false;
 let shiftPressed = false;
 let bPressed = false;
-let isDragging = false;
 let dragStartY = 0;
 let draggedEventId = null;
 let minutesDialogOverlay = null;
@@ -185,29 +184,10 @@ function handleMouseMove(e) {
   window.lastMouseX = e.pageX;
   window.lastMouseY = e.pageY;
 
-  if (isDragging) {
-    document.body.style.cursor = "move";
-    e.preventDefault();
-    return;
-  }
-
   updateSelectionBox(e);
 }
 
 function handleMouseUp(e) {
-  if (isDragging) {
-    const deltaY = e.pageY - dragStartY;
-    const steps = Math.round(deltaY / 12);
-    const minutes = steps * 15;
-
-    if (minutes !== 0) moveSelectedEventsByMinutes(minutes);
-
-    isDragging = false;
-    draggedEventId = null;
-    document.body.style.cursor = "";
-    return;
-  }
-
   if (isSelecting && !isKeyboardSelecting) {
     finishMarqueeSelection();
   }
@@ -257,7 +237,7 @@ function handleKeyDown(e) {
       }
       minutesDialogOpen = false;
     } else {
-      showMinutesInputDialog();
+      showMoveEventsDialog();
     }
 
     e.preventDefault();
@@ -325,124 +305,6 @@ function deselectAllEvents() {
   }
 }
 
-//---------------------------------- MOVE EVENT POPUP ---------------------------------
-function showMinutesInputDialog() {
-  if (!checkIfCalendarView()) return;
-
-  minutesDialogOpen = true;
-
-  const overlay = document.createElement("div");
-  minutesDialogOverlay = overlay;
-
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10000;
-  `;
-
-  const dialog = document.createElement("div");
-  dialog.style.cssText = `
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    text-align: center;
-  `;
-
-  const label = document.createElement("div");
-  label.textContent = `Move ${selected.length} event${
-    selected.length > 1 ? "s" : ""
-  } by how many minutes?`;
-  label.style.cssText = `margin-bottom: 10px; font-size: 14px; color: #333;`;
-
-  const input = document.createElement("input");
-  input.type = "number";
-  input.placeholder = "Enter minutes (+ or -)";
-  input.style.cssText = `
-    width: 200px;
-    padding: 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 14px;
-    text-align: center;
-  `;
-
-  const buttonsDiv = document.createElement("div");
-  buttonsDiv.style.cssText = `margin-top: 10px; display: flex; gap: 10px; justify-content: center;`;
-
-  const submitBtn = document.createElement("button");
-  submitBtn.textContent = "Move Events";
-  submitBtn.style.cssText = `
-    padding: 8px 16px;
-    background: #4285f4;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  `;
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.textContent = "Cancel";
-  cancelBtn.style.cssText = `
-    padding: 8px 16px;
-    background: #f1f1f1;
-    color: #333;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  `;
-
-  const handleClose = () => {
-    if (minutesDialogOverlay) {
-      document.body.removeChild(minutesDialogOverlay);
-      minutesDialogOverlay = null;
-    }
-    minutesDialogOpen = false;
-  };
-
-  submitBtn.addEventListener("click", () => {
-    const minutes = parseInt(input.value);
-    if (!isNaN(minutes) && minutes !== 0) {
-      moveSelectedEventsByMinutes(minutes);
-    }
-    handleClose();
-  });
-
-  cancelBtn.addEventListener("click", handleClose);
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      const minutes = parseInt(input.value);
-      if (!isNaN(minutes) && minutes !== 0) {
-        moveSelectedEventsByMinutes(minutes);
-      }
-      handleClose();
-    }
-    if (e.key === "Escape") handleClose();
-  });
-
-  buttonsDiv.appendChild(submitBtn);
-  buttonsDiv.appendChild(cancelBtn);
-  dialog.appendChild(label);
-  dialog.appendChild(input);
-  dialog.appendChild(buttonsDiv);
-
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
-
-  input.focus();
-}
-
-//---------------------------------- DELETE EVENTS -----------------------------------
 //---------------------------------- DELETE EVENTS -----------------------------------
 async function deleteSelectedEvents() {
   if (!checkIfCalendarView()) return;
@@ -668,14 +530,6 @@ async function deleteSelectedEvents() {
   const successes = deleteResults.filter((r) => r.ok && !r.skipped);
   const skipped = deleteResults.filter((r) => r.ok && r.skipped);
 
-  // Log summary
-  // console.log("=== DELETE OPERATION SUMMARY ===");
-  // console.log(`Total events processed: ${deleteResults.length}`);
-  // console.log(`Successfully deleted: ${successes.length}`);
-  // console.log(`Skipped (no permission): ${skipped.length}`);
-  // console.log(`Failed: ${failures.length}`);
-  // console.log("Detailed results:", deleteResults);
-
   // Remove overlay
   const existingOverlay = document.getElementById("delete-events-overlay");
   if (existingOverlay) existingOverlay.remove();
@@ -710,8 +564,180 @@ async function deleteSelectedEvents() {
   }
 }
 
-// -----------------------------MOVE EVENTS---------- ---------------------------------------
-async function moveSelectedEventsByMinutes(minutes) {
+//------------------------------------------------- MOVE EVENT POPUP ---------------------------------------------------
+function showMoveEventsDialog() {
+  if (!checkIfCalendarView()) return;
+
+  moveDialogOpen = true;
+
+  const overlay = document.createElement("div");
+  moveDialogOverlay = overlay;
+
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+  `;
+
+  const dialog = document.createElement("div");
+  dialog.style.cssText = `
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-align: center;
+  `;
+
+  const label = document.createElement("div");
+  label.textContent = `Move ${selected.length} event${
+    selected.length > 1 ? "s" : ""
+  } by:`;
+  label.style.cssText = `margin-bottom: 10px; font-size: 14px; color: #333;`;
+
+  const inputContainer = document.createElement("div");
+  inputContainer.style.cssText = `
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 10px;
+  `;
+
+  const quantityInput = document.createElement("input");
+  quantityInput.type = "number";
+  quantityInput.placeholder = "Enter amount";
+  quantityInput.value = "15";
+  quantityInput.style.cssText = `
+    width: 120px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+  `;
+
+  const unitSelect = document.createElement("select");
+  unitSelect.style.cssText = `
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+    color: black;
+  `;
+
+  const minutesOption = document.createElement("option");
+  minutesOption.value = "minutes";
+  minutesOption.textContent = "Minutes";
+
+  const hoursOption = document.createElement("option");
+  hoursOption.value = "hours";
+  hoursOption.textContent = "Hours";
+
+  const daysOption = document.createElement("option");
+  daysOption.value = "days";
+  daysOption.textContent = "Days";
+
+  unitSelect.appendChild(minutesOption);
+  unitSelect.appendChild(hoursOption);
+  unitSelect.appendChild(daysOption);
+
+  inputContainer.appendChild(quantityInput);
+  inputContainer.appendChild(unitSelect);
+
+  const buttonsDiv = document.createElement("div");
+  buttonsDiv.style.cssText = `margin-top: 10px; display: flex; gap: 10px; justify-content: center;`;
+
+  const submitBtn = document.createElement("button");
+  submitBtn.textContent = "Move Events";
+  submitBtn.style.cssText = `
+    padding: 8px 16px;
+    background: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  `;
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.style.cssText = `
+    padding: 8px 16px;
+    background: #f1f1f1;
+    color: #333;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  `;
+
+  const handleClose = () => {
+    if (moveDialogOverlay) {
+      document.body.removeChild(moveDialogOverlay);
+      moveDialogOverlay = null;
+    }
+    moveDialogOpen = false;
+  };
+
+  const handleSubmit = () => {
+    const quantity = parseInt(quantityInput.value);
+    const unit = unitSelect.value;
+
+    if (!isNaN(quantity) && quantity !== 0) {
+      moveSelectedEvents(quantity, unit);
+    }
+    handleClose();
+  };
+
+  submitBtn.addEventListener("click", handleSubmit);
+  cancelBtn.addEventListener("click", handleClose);
+
+  quantityInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleSubmit();
+    }
+    if (e.key === "Escape") handleClose();
+  });
+
+  buttonsDiv.appendChild(submitBtn);
+  buttonsDiv.appendChild(cancelBtn);
+  dialog.appendChild(label);
+  dialog.appendChild(inputContainer);
+  dialog.appendChild(buttonsDiv);
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  quantityInput.focus();
+  quantityInput.select();
+}
+
+// -----------------------------------------------------MOVE EVENTS------------------------------------------------
+function convertToMinutes(quantity, unit) {
+  switch (unit) {
+    case "minutes":
+      return quantity;
+    case "hours":
+      return quantity * 60;
+    case "days":
+      return quantity * 60 * 24;
+    default:
+      return 0;
+  }
+}
+
+async function moveSelectedEvents(quantity, unit) {
+  const minutes = convertToMinutes(quantity, unit);
+
   if (!checkIfCalendarView()) return;
   if (selected.length === 0) return;
 
@@ -975,14 +1001,6 @@ async function moveSelectedEventsByMinutes(minutes) {
   const successes = results.filter((r) => r.ok && !r.skipped);
   const skipped = results.filter((r) => r.ok && r.skipped);
 
-  // Log summary
-  // console.log("=== MOVE OPERATION SUMMARY ===");
-  // console.log(`Total events processed: ${results.length}`);
-  // console.log(`Successfully moved: ${successes.length}`);
-  // console.log(`Skipped (no permission): ${skipped.length}`);
-  // console.log(`Failed: ${failures.length}`);
-  // console.log("Detailed results:", results);
-
   // Remove overlay
   const existingOverlay = document.getElementById("move-events-overlay");
   if (existingOverlay) existingOverlay.remove();
@@ -1069,7 +1087,6 @@ document.addEventListener("visibilitychange", () => {
 function resetSelectionState() {
   isSelecting = false;
   isKeyboardSelecting = false;
-  isDragging = false;
 
   altPressed = false;
   sPressed = false;
