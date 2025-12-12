@@ -2,14 +2,14 @@
   "manifest_version": 3,
   "name": "Google Calendar Bulk Edit",
   "version": "1.0",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2+jq2M9YCDbhsX4RA5sDSJO7cl92wJhIEzLgolT+pI+qLD8FQrACUXt9AOKOHOsRpOa8CpJk13Wf1vEmFx2Ejjgv65IFrpOczHRsz0jB7g2wJOuy0jEg6YBqaE4JUAnJqCmVJ2oBXjNx4sxERDx/Fl3y8m/fuOEWmBYvOjgXp4RPJ1EVDOrLsz9yNCHsn8/baA3NwT4uEPdw0HDLp4ZCJADydOcBZJLrQ8+lHb8DSJ8QX7HvcNFewAvaP7tVU4KuOFyxHOywlJAwyTIUAbey1QgTBO7YS4KbcVQNcObxTPoOyjFsoQPiGWJw7IDYdGWXd77u9wBO8YRaDnBc03y7PQIDAQAB",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsYH/owYPDsV6KhvIL0hdjlXyaiydRsRyhXcBB8e+1B21ojQ+F5exxAy7ceJjkIzxaHagtlMll+ZdHOFzqwFT/wE9mscBEZtACOqys86i2tuiJsQxVzRID6XFh5BgZzt1ogbSN8CVY66tIKPZiUk8DBHo/757AfQY8bkqhygsRMzx8LDCPEvq2LdUutLqzoQfbv2s/aCpiBw13hxbiPZqky8hSk3oqYqxP5JkvHd9MB4YhIOFRXIHV+JniTx8EmdBWI8IeuKklrkSsSvWmUSOAA3FVLYfh20XWdjkTOqvOsZataGon6LpVQpsqI1mamSfPHARwk9NgQC+r6kSI8crCQIDAQAB",
   "permissions": ["identity", "storage"],
   "host_permissions": [
     "https://www.googleapis.com/*",
     "https://accounts.google.com/*"
   ],
   "oauth2": {
-    "client_id": "425275071746-9eq4414a3mplbg6vfo1te1dvnmnjto1t.apps.googleusercontent.com",
+    "client_id": "425275071746-seauhsfbb4jugfgq868dr6iq1ddr3qc6.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/calendar", "email"]
   },
   "background": {
