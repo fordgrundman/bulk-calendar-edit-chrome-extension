@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       // 1. Clear ALL cached tokens that belong to your extension
       chrome.identity.clearAllCachedAuthTokens(() => {
-        console.log("All cached auth tokens cleared.");
+        // console.log("All cached auth tokens cleared.");
       });
 
       // 2. Try revoking the currently granted token (optional, harmless)
