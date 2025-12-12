@@ -7,12 +7,14 @@ let isKeyboardSelecting = false;
 let altPressed = false;
 let sPressed = false;
 let aPressed = false;
+let uPressed = false;
 let shiftPressed = false;
 let bPressed = false;
 let dragStartY = 0;
 let draggedEventId = null;
 let minutesDialogOverlay = null;
 let minutesDialogOpen = false;
+let eventsBeforeMostRecentChange = [];
 
 const head = document.head;
 
@@ -27,6 +29,7 @@ function detectTheme() {
 const themeObserver = new MutationObserver(() => {
   const isDark = detectTheme() === "#1B1B1B";
 
+  //update counter based on theme changes
   const counterElem = document.querySelector(".gc-selected-counter");
   if (counterElem) {
     counterElem.style.border =
@@ -52,6 +55,8 @@ function isOverlapping(rectA, rectB) {
   );
 }
 
+//--------------GET UP TO DATE WITH STORAGE, HIGHLIGHTCOLOR AND EVENTS-TO-UNDO ------------------
+
 // Load highlight color from chrome.storage
 chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
   window.highlightColor = highlightColor || "red";
@@ -61,6 +66,18 @@ chrome.storage.local.get("highlightColor", ({ highlightColor }) => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "HIGHLIGHT_COLOR_UPDATED") {
     window.highlightColor = msg.color;
+  }
+});
+
+// Load eventsToUndo from chrome.storage
+chrome.storage.local.get("eventsToUndo", ({ eventsToUndo }) => {
+  window.eventsToUndo = eventsToUndo || [];
+});
+
+// Receive updates from background
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "EVENTS_TO_UNDO_UPDATED") {
+    window.eventsToUndo = msg.events;
   }
 });
 
@@ -197,23 +214,22 @@ function handleMouseUp(e) {
 function handleKeyDown(e) {
   if (e.key === "Alt") altPressed = true;
   if (e.key === "a") aPressed = true;
+  if (e.key === "u") uPressed = true;
   if (e.key === "s" || e.key === "S") sPressed = true;
   if (e.key === "Shift") shiftPressed = true;
   if (e.key === "b" || e.key === "B") bPressed = true;
 
   if (altPressed && aPressed && selected.length > 0) deselectAllEvents();
+  if (uPressed && altPressed) {
+    UndoLastAction();
+  }
 
   if (
     (e.key === "Delete" || e.key === "Backspace") &&
     altPressed &&
     selected.length > 0
   ) {
-    altPressed = false;
-    sPressed = false;
-    aPressed = false;
-    bPressed = false;
-    shiftPressed = false;
-
+    resetSelectionState();
     deleteSelectedEvents();
   }
 
@@ -256,11 +272,15 @@ function handleKeyUp(e) {
     shiftPressed = false;
   }
 
-  if (e.key === "a") {
+  if (e.key === "a" || e.key === "A") {
     aPressed = false;
   }
   if (e.key === "b" || e.key === "B") {
     bPressed = false;
+  }
+
+  if (e.key === "u" || e.key === "U") {
+    uPressed = false;
   }
 
   if (isKeyboardSelecting && (!altPressed || !sPressed)) {
@@ -352,10 +372,15 @@ async function deleteSelectedEvents() {
     box.textContent = text;
   };
 
+  //equips the code with an ability to pause/sleep before retrying a failed delete attempt, give api rate limit time to reset
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  //helps us identify http errors that are temporary, not permanent
+  //codes 429 (rate limited) and 500->600 (server error).
   const isTransientStatus = (s) => s === 429 || (s >= 500 && s < 600);
 
-  // fetch all event details
+  // fetch all event details, so we can show metadata like title description if deletion fails
+  //filters out events that are already deleted (404/410), have no permissions to via fetchStatus
   const fetchEvent = async (eventId) => {
     try {
       const res = await fetch(
@@ -365,7 +390,7 @@ async function deleteSelectedEvents() {
         }
       );
       if (res.status === 404 || res.status === 410)
-        return { id: eventId, gone: true };
+        return { id: eventId, gone: true }; //event already deleted/DNE so provide that info to avoid further deletion attempts
       if (!res.ok)
         return { id: eventId, fetchStatus: res.status, idOnly: true };
       const data = await res.json();
@@ -384,6 +409,8 @@ async function deleteSelectedEvents() {
   // delete single with aggressive retry (up to 15 attempts)
   const deleteSingle = async (event, attemptNumber = 1) => {
     const maxAttempts = 15;
+
+    //exponential backoff because the heavier the rate limit, the more you need to wait from API
     let delay = 500 * Math.pow(1.5, attemptNumber - 1);
 
     try {
@@ -397,8 +424,8 @@ async function deleteSelectedEvents() {
 
       // Success cases
       if (res.status === 410 || res.status === 404)
-        return { ok: true, skipped: false };
-      if (res.ok) return { ok: true, skipped: false };
+        return { ok: true, event, skipped: false };
+      if (res.ok) return { ok: true, event, skipped: false };
 
       // Get response body for all non-success cases
       const responseText = await res.text();
@@ -511,14 +538,16 @@ async function deleteSelectedEvents() {
   };
 
   // Process all events
+  //keep events we fetched successfully, skip events already gone or dont have permission to view (fetchStatus)
   const validEvents = fetched.filter((ev) => !ev.gone && !ev.fetchStatus);
 
-  const CONCURRENCY = 12;
+  //deletions happen in batches
+  const BATCH_SIZE = 12; //12 is fast enough but low enough to avoid aggressive rate limiting
   const deleteResults = [];
   let processed = 0;
 
-  for (let i = 0; i < validEvents.length; i += CONCURRENCY) {
-    const slice = validEvents.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < validEvents.length; i += BATCH_SIZE) {
+    const slice = validEvents.slice(i, i + BATCH_SIZE);
     updateOverlayText(`Deleting Events... ${processed}/${validEvents.length}`);
     const sliceResults = await Promise.all(slice.map((e) => deleteSingle(e)));
     deleteResults.push(...sliceResults);
@@ -547,13 +576,22 @@ async function deleteSelectedEvents() {
   } else {
     // All operations completed successfully (owned events deleted, non-owned skipped)
     if (successes.length > 0) {
-      // alert(
-      //   `Successfully deleted ${successes.length} event(s).${
-      //     skipped.length > 0
-      //       ? ` (${skipped.length} skipped - no permission)`
-      //       : ""
-      //   }`
-      // );
+      //successes holds event data for the event BEFORE the time changes, use for UNDO feature
+      successes.forEach((s) => {
+        eventsBeforeMostRecentChange.push(s.event);
+
+        //send message to background to update local storage with eventsToUndo, to persist after reload
+        chrome.runtime.sendMessage({
+          type: "UPDATE_EVENTS_TO_UNDO",
+          eventsToUndo: {
+            events: eventsBeforeMostRecentChange,
+            action: "delete", //add type of action for easy undo
+            delta: undefined,
+          },
+        });
+      });
+
+      //reload the page so changes are reflected for user
       window.location.reload();
     } else {
       // All events were skipped (none owned)
@@ -693,7 +731,7 @@ function showMoveEventsDialog() {
     const unit = unitSelect.value;
 
     if (!isNaN(quantity) && quantity !== 0) {
-      moveSelectedEvents(quantity, unit);
+      moveEvents(selected, quantity, unit);
     }
     handleClose();
   };
@@ -735,11 +773,11 @@ function convertToMinutes(quantity, unit) {
   }
 }
 
-async function moveSelectedEvents(quantity, unit) {
+async function moveEvents(events, quantity, unit) {
   const minutes = convertToMinutes(quantity, unit);
 
   if (!checkIfCalendarView()) return;
-  if (selected.length === 0) return;
+  if (events.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
@@ -807,7 +845,7 @@ async function moveSelectedEvents(quantity, unit) {
     }
   };
 
-  const fetched = await Promise.all(selected.map(fetchEvent));
+  const fetched = await Promise.all(events.map(fetchEvent));
 
   // Move single event with aggressive retry (up to 15 attempts)
   const moveSingle = async (event, attemptNumber = 1) => {
@@ -866,8 +904,8 @@ async function moveSelectedEvents(quantity, unit) {
 
       // Success cases
       if (res.status === 404 || res.status === 410)
-        return { ok: true, skipped: false };
-      if (res.ok) return { ok: true, skipped: false };
+        return { ok: true, event, skipped: false };
+      if (res.ok) return { ok: true, event, skipped: false };
 
       // Get response body for all non-success cases
       const responseText = await res.text();
@@ -984,12 +1022,12 @@ async function moveSelectedEvents(quantity, unit) {
   // Process all valid events
   const validEvents = fetched.filter((ev) => !ev.gone && !ev.fetchStatus);
 
-  const CONCURRENCY = 12;
+  const BATCH_SIZE = 12;
   const results = [];
   let processed = 0;
 
-  for (let i = 0; i < validEvents.length; i += CONCURRENCY) {
-    const slice = validEvents.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < validEvents.length; i += BATCH_SIZE) {
+    const slice = validEvents.slice(i, i + BATCH_SIZE);
     updateOverlayText(`Moving Events... ${processed}/${validEvents.length}`);
     const sliceResults = await Promise.all(slice.map((e) => moveSingle(e)));
     results.push(...sliceResults);
@@ -999,6 +1037,7 @@ async function moveSelectedEvents(quantity, unit) {
   // Only count actual failures (not skipped/permission-denied)
   const failures = results.filter((r) => !r.ok);
   const successes = results.filter((r) => r.ok && !r.skipped);
+
   const skipped = results.filter((r) => r.ok && r.skipped);
 
   // Remove overlay
@@ -1018,13 +1057,23 @@ async function moveSelectedEvents(quantity, unit) {
   } else {
     // All operations completed successfully (owned events moved, non-owned skipped)
     if (successes.length > 0) {
-      // alert(
-      //   `Successfully moved ${successes.length} event(s).${
-      //     skipped.length > 0
-      //       ? ` (${skipped.length} skipped - no permission)`
-      //       : ""
-      //   }`
-      // );
+      //successes holds event data for the event BEFORE the time changes, use for UNDO feature
+
+      successes.forEach((s) => {
+        eventsBeforeMostRecentChange.push(s.event);
+
+        //send message to background to update local storage with eventsToUndo, to persist after reload
+        chrome.runtime.sendMessage({
+          type: "UPDATE_EVENTS_TO_UNDO",
+          eventsToUndo: {
+            events: eventsBeforeMostRecentChange,
+            action: "move", //add type of action for easy undo
+            delta: minutes, //time difference of move
+          },
+        });
+      });
+
+      //reload the page so changes are reflected for user
       window.location.reload();
     } else {
       // All events were skipped (none owned)
@@ -1032,6 +1081,26 @@ async function moveSelectedEvents(quantity, unit) {
         "No events were moved. You don't have permission to modify the selected events."
       );
     }
+  }
+}
+
+//---------------------------------- UNDO LAST ACTION ----------------------------------
+function UndoLastAction() {
+  //whether last action was move or delete is stored in each event of eventsToUndo
+  const eventsToUndo = window.eventsToUndo;
+  console.log(eventsToUndo);
+
+  const wasAMove = eventsToUndo?.action === "move";
+
+  if (wasAMove) {
+    //we can just calculate time delta and call our moveEventsFunction
+    //reload will get handled in the move function
+    //we need to undo, so the time delta should be opposite of sign
+    timeDelta = eventsToUndo.delta * -1;
+    const idArray = eventsToUndo.events.map((event) => event.id);
+    moveEvents(idArray, timeDelta, "minutes");
+  } else {
+    //was a delete, so we have to POST new events with the old values
   }
 }
 //---------------------------------- INITIALIZATION ----------------------------------
@@ -1091,6 +1160,7 @@ function resetSelectionState() {
   altPressed = false;
   sPressed = false;
   aPressed = false;
+  uPressed = false;
   shiftPressed = false;
   bPressed = false;
 

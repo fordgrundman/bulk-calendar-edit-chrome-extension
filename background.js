@@ -33,7 +33,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ status: "ok" });
 
     //have this listener respond asynchronously after the timeout, prevents sendResponse from failing when the service worker pauses,
-    //prevents “Extension context invalidated”
     return true;
   }
 
@@ -120,5 +119,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
 
     return true; // keep message channel open
+  }
+
+  // -------------------------------- EVENTS TO UNDO IN STORAGE ----------------------------------
+  if (request.type === "UPDATE_EVENTS_TO_UNDO") {
+    const eventsToUndo = request.eventsToUndo;
+
+    //wait a shot time before saving to storage to prevent quota errors
+    saveTimeout = setTimeout(() => {
+      chrome.storage.local.set({ eventsToUndo: eventsToUndo });
+
+      //notify every tab that the eventsToUndo has changed
+      chrome.tabs.query({}, (tabs) => {
+        for (const tab of tabs) {
+          if (!tab.id) continue;
+          chrome.tabs.sendMessage(
+            tab.id,
+            {
+              type: "EVENTS_TO_UNDO_UPDATED",
+              eventsToUndo,
+            },
+            () => {
+              if (chrome.runtime.lastError) {
+                // //swallow the error so Chrome doesn't log it
+                // console.debug("No listener in tab", tab.id);
+              }
+            }
+          );
+        }
+      });
+    }, 150);
+
+    sendResponse({ status: "ok" });
+
+    //have this listener respond asynchronously after the timeout, prevents sendResponse from failing when the service worker pauses,
+    return true;
   }
 });
