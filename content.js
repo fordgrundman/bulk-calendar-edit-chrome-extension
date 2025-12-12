@@ -663,19 +663,6 @@ async function deleteSelectedEvents() {
     processed += slice.length;
   }
 
-  // Only count actual failures (not skipped/permission-denied)
-  const failures = deleteResults.filter((r) => !r.ok);
-  const successes = deleteResults.filter((r) => r.ok && !r.skipped);
-  const skipped = deleteResults.filter((r) => r.ok && r.skipped);
-
-  // Log summary
-  // console.log("=== DELETE OPERATION SUMMARY ===");
-  // console.log(`Total events processed: ${deleteResults.length}`);
-  // console.log(`Successfully deleted: ${successes.length}`);
-  // console.log(`Skipped (no permission): ${skipped.length}`);
-  // console.log(`Failed: ${failures.length}`);
-  // console.log("Detailed results:", deleteResults);
-
   // Remove overlay
   const existingOverlay = document.getElementById("delete-events-overlay");
   if (existingOverlay) existingOverlay.remove();
@@ -974,14 +961,6 @@ async function moveSelectedEventsByMinutes(minutes) {
   const failures = results.filter((r) => !r.ok);
   const successes = results.filter((r) => r.ok && !r.skipped);
   const skipped = results.filter((r) => r.ok && r.skipped);
-
-  // Log summary
-  // console.log("=== MOVE OPERATION SUMMARY ===");
-  // console.log(`Total events processed: ${results.length}`);
-  // console.log(`Successfully moved: ${successes.length}`);
-  // console.log(`Skipped (no permission): ${skipped.length}`);
-  // console.log(`Failed: ${failures.length}`);
-  // console.log("Detailed results:", results);
 
   // Remove overlay
   const existingOverlay = document.getElementById("move-events-overlay");
