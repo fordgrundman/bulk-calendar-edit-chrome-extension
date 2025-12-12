@@ -574,15 +574,15 @@ async function deleteSelectedEvents() {
             }
           } else {
             // True permission denial - skip
-            // console.log(`Skipping event (403 - no permission): ${event.title}`);
-            // console.log("API error response:", responseText);
+            console.log(`Skipping event (403 - no permission): ${event.title}`);
+            console.log("API error response:", responseText);
             return { ok: true, skipped: true };
           }
         } catch (e) {
           // Can't parse response, assume permission issue and skip
-          // console.log(
-          //   `Skipping event (403 - unparseable response): ${event.title}`
-          // );
+          console.log(
+            `Skipping event (403 - unparseable response): ${event.title}`
+          );
           return { ok: true, skipped: true };
         }
       }
@@ -662,6 +662,19 @@ async function deleteSelectedEvents() {
     deleteResults.push(...sliceResults);
     processed += slice.length;
   }
+
+  // Only count actual failures (not skipped/permission-denied)
+  const failures = deleteResults.filter((r) => !r.ok);
+  const successes = deleteResults.filter((r) => r.ok && !r.skipped);
+  const skipped = deleteResults.filter((r) => r.ok && r.skipped);
+
+  // Log summary
+  // console.log("=== DELETE OPERATION SUMMARY ===");
+  // console.log(`Total events processed: ${deleteResults.length}`);
+  // console.log(`Successfully deleted: ${successes.length}`);
+  // console.log(`Skipped (no permission): ${skipped.length}`);
+  // console.log(`Failed: ${failures.length}`);
+  // console.log("Detailed results:", deleteResults);
 
   // Remove overlay
   const existingOverlay = document.getElementById("delete-events-overlay");
@@ -866,17 +879,17 @@ async function moveSelectedEventsByMinutes(minutes) {
             }
           } else {
             // True permission denial - skip
-            // console.log(
-            //   `Skipping event (403 - no permission): ${event.summary}`
-            // );
-            // console.log("API error response:", responseText);
+            console.log(
+              `Skipping event (403 - no permission): ${event.summary}`
+            );
+            console.log("API error response:", responseText);
             return { ok: true, skipped: true };
           }
         } catch (e) {
           // Can't parse response, assume permission issue and skip
-          // console.log(
-          //   `Skipping event (403 - unparseable response): ${event.summary}`
-          // );
+          console.log(
+            `Skipping event (403 - unparseable response): ${event.summary}`
+          );
           return { ok: true, skipped: true };
         }
       }
@@ -961,6 +974,14 @@ async function moveSelectedEventsByMinutes(minutes) {
   const failures = results.filter((r) => !r.ok);
   const successes = results.filter((r) => r.ok && !r.skipped);
   const skipped = results.filter((r) => r.ok && r.skipped);
+
+  // Log summary
+  // console.log("=== MOVE OPERATION SUMMARY ===");
+  // console.log(`Total events processed: ${results.length}`);
+  // console.log(`Successfully moved: ${successes.length}`);
+  // console.log(`Skipped (no permission): ${skipped.length}`);
+  // console.log(`Failed: ${failures.length}`);
+  // console.log("Detailed results:", results);
 
   // Remove overlay
   const existingOverlay = document.getElementById("move-events-overlay");
