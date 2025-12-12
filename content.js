@@ -693,13 +693,13 @@ async function deleteSelectedEvents() {
   } else {
     // All operations completed successfully (owned events deleted, non-owned skipped)
     if (successes.length > 0) {
-      alert(
-        `Successfully deleted ${successes.length} event(s).${
-          skipped.length > 0
-            ? ` (${skipped.length} skipped - no permission)`
-            : ""
-        }`
-      );
+      // alert(
+      //   `Successfully deleted ${successes.length} event(s).${
+      //     skipped.length > 0
+      //       ? ` (${skipped.length} skipped - no permission)`
+      //       : ""
+      //   }`
+      // );
       window.location.reload();
     } else {
       // All events were skipped (none owned)
