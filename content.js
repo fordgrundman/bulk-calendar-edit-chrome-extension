@@ -43,17 +43,6 @@ themeObserver.observe(head, {
   subtree: true,
   attributes: true,
 });
-//----------------------------- DARK MODE DETECTOR END ------------------------------
-
-//---------------------------------- SELECTION LOGIC --------------------------------
-function isOverlapping(rectA, rectB) {
-  return (
-    rectA.left < rectB.right &&
-    rectA.right > rectB.left &&
-    rectA.top < rectB.bottom &&
-    rectA.bottom > rectB.top
-  );
-}
 
 //--------------GET UP TO DATE WITH STORAGE, HIGHLIGHTCOLOR AND EVENTS-TO-UNDO ------------------
 
@@ -89,6 +78,54 @@ function checkIfCalendarView() {
   );
 }
 
+//---------------------------------- SELECTION LOGIC/HELPERS --------------------------------
+const CLICK_THRESHOLD = 8;
+
+function isOverlapping(rectA, rectB) {
+  return (
+    rectA.left < rectB.right &&
+    rectA.right > rectB.left &&
+    rectA.top < rectB.bottom &&
+    rectA.bottom > rectB.top
+  );
+}
+
+function extractEventId(event) {
+  const jslogAttr = event.getAttribute("jslog");
+  const match = jslogAttr?.match(/35463;\s*2:\["([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+function clearAllSelections() {
+  document.querySelectorAll(".gc-bulk-selected").forEach((el) => {
+    el.classList.remove("gc-bulk-selected");
+    el.style.backgroundColor = el.style.borderColor;
+  });
+  selected = [];
+}
+
+function toggleEventSelection(event) {
+  const eventId = extractEventId(event);
+  if (!eventId) return;
+
+  if (event.classList.contains("gc-bulk-selected")) {
+    event.classList.remove("gc-bulk-selected");
+    event.style.backgroundColor = event.style.borderColor;
+    selected = selected.filter((id) => id !== eventId);
+  } else {
+    event.classList.add("gc-bulk-selected");
+    event.style.backgroundColor = window.highlightColor || "red";
+    selected.push(eventId);
+  }
+}
+
+function cleanupSelectionBox() {
+  if (selectionBox) {
+    selectionBox.remove();
+    selectionBox = null;
+  }
+}
+
 //--------------------------------- MARQUEE SELECTION --------------------------------
 function startMarqueeSelection(e) {
   if (!checkIfCalendarView()) {
@@ -96,20 +133,17 @@ function startMarqueeSelection(e) {
     return;
   }
 
-  if (selectionBox) {
-    selectionBox.remove();
-    selectionBox = null;
-  }
+  cleanupSelectionBox();
 
   isSelecting = true;
   startX = e.pageX;
   startY = e.pageY;
 
-  let selectionBoxColor = window.highlightColor || "red";
+  const selectionBoxColor = window.highlightColor || "red";
 
   selectionBox = document.createElement("div");
   selectionBox.style.cssText = `
-    position: fixed; 
+    position: fixed;
     border: 2px dashed ${selectionBoxColor};
     background-color: color-mix(in srgb, ${selectionBoxColor} 30%, transparent);
     left: ${startX}px;
@@ -117,13 +151,13 @@ function startMarqueeSelection(e) {
     pointer-events: none;
     z-index: 999999;
   `;
-  document.body.appendChild(selectionBox);
 
+  document.body.appendChild(selectionBox);
   e.preventDefault();
 }
 
 function updateSelectionBox(e) {
-  if (!isSelecting) return;
+  if (!isSelecting || !selectionBox) return;
 
   const x = Math.min(e.pageX, startX);
   const y = Math.min(e.pageY, startY);
@@ -137,56 +171,48 @@ function updateSelectionBox(e) {
 }
 
 function finishMarqueeSelection() {
-  if (!isSelecting) return;
+  if (!isSelecting || !selectionBox) return;
 
   isSelecting = false;
   isKeyboardSelecting = false;
 
-  if (!selectionBox) return;
-
   const rect = selectionBox.getBoundingClientRect();
 
+  const isClick = rect.width < CLICK_THRESHOLD && rect.height < CLICK_THRESHOLD;
+
+  // CLICK → toggle ONLY the topmost event
+  if (isClick) {
+    const clickedEl = document.elementFromPoint(rect.left, rect.top);
+    const eventEl = clickedEl?.closest('[role="button"][data-eventid]');
+
+    if (eventEl) {
+      toggleEventSelection(eventEl);
+    }
+
+    cleanupSelectionBox();
+    updateSelectionCounter();
+    return;
+  }
+
+  // DRAG → additive marquee selection
   const gcEvents = document.querySelectorAll('[role="button"][data-eventid]');
 
-  gcEvents.forEach((event, index) => {
+  gcEvents.forEach((event) => {
     const eventRect = event.getBoundingClientRect();
-    const isEventSelected = event.classList.contains("gc-bulk-selected");
-
     if (isOverlapping(rect, eventRect)) {
-      const jslogAttr = event.getAttribute("jslog");
-
-      if (!jslogAttr) {
-        return;
-      }
-
-      const match = jslogAttr.match(/35463;\s*2:\["([^"]+)"/);
-      const eventId = match ? match[1] : null;
-
-      if (!eventId) {
-        return;
-      }
-
-      if (!isEventSelected) {
-        event.style.backgroundColor = window.highlightColor || "red";
-        selected.push(eventId);
-        event.classList.add("gc-bulk-selected");
-      } else {
-        event.style.backgroundColor = event.style.borderColor;
-        selected = selected.filter(
-          (filterEventId) => filterEventId !== eventId
-        );
-        event.classList.remove("gc-bulk-selected");
-      }
+      toggleEventSelection(event);
     }
   });
 
-  let counterElem = document.querySelector(".gc-selected-counter");
+  cleanupSelectionBox();
+  updateSelectionCounter();
+}
+
+function updateSelectionCounter() {
+  const counterElem = document.querySelector(".gc-selected-counter");
   if (counterElem) {
     counterElem.textContent = "Selected Events: " + selected.length;
   }
-
-  selectionBox.remove();
-  selectionBox = null;
 }
 
 //---------------------------------- MOUSE HANDLERS ----------------------------------
