@@ -230,7 +230,7 @@ function handleKeyDown(e) {
     selected.length > 0
   ) {
     resetSelectionState();
-    deleteSelectedEvents();
+    deleteEvents(selected);
   }
 
   if (altPressed && sPressed && !isKeyboardSelecting && !isSelecting) {
@@ -326,14 +326,14 @@ function deselectAllEvents() {
 }
 
 //---------------------------------- DELETE EVENTS -----------------------------------
-async function deleteSelectedEvents() {
+async function deleteEvents(eventIds) {
   if (!checkIfCalendarView()) return;
 
   const confirmedDelete = confirm(
-    "Are you sure you want to delete the selected events? This action cannot be undone."
+    "Are you sure you want to delete the selected events?"
   );
   if (!confirmedDelete) return;
-  if (selected.length === 0) return;
+  if (eventIds.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
@@ -395,16 +395,14 @@ async function deleteSelectedEvents() {
         return { id: eventId, fetchStatus: res.status, idOnly: true };
       const data = await res.json();
       return {
-        id: eventId,
-        title: data.summary || "Untitled Event",
-        description: data.description || "",
+        ...data,
       };
     } catch (err) {
       return { id: eventId, fetchStatus: "network-error", idOnly: true };
     }
   };
 
-  const fetched = await Promise.all(selected.map(fetchEvent));
+  const fetched = await Promise.all(eventIds.map(fetchEvent));
 
   // delete single with aggressive retry (up to 15 attempts)
   const deleteSingle = async (event, attemptNumber = 1) => {
@@ -773,11 +771,11 @@ function convertToMinutes(quantity, unit) {
   }
 }
 
-async function moveEvents(events, quantity, unit) {
+async function moveEvents(eventIds, quantity, unit) {
   const minutes = convertToMinutes(quantity, unit);
 
   if (!checkIfCalendarView()) return;
-  if (events.length === 0) return;
+  if (eventIds.length === 0) return;
 
   const authResponse = await chrome.runtime.sendMessage({
     type: "GET_AUTH_TOKEN",
@@ -824,28 +822,23 @@ async function moveEvents(events, quantity, unit) {
     try {
       const res = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.status === 404 || res.status === 410)
         return { id: eventId, gone: true };
       if (!res.ok)
         return { id: eventId, fetchStatus: res.status, idOnly: true };
+
       const data = await res.json();
       return {
-        id: eventId,
-        summary: data.summary || "Untitled Event",
-        description: data.description || "",
-        start: data.start,
-        end: data.end,
+        ...data, // keep all properties of the fetched event
       };
     } catch (err) {
       return { id: eventId, fetchStatus: "network-error", idOnly: true };
     }
   };
 
-  const fetched = await Promise.all(events.map(fetchEvent));
+  const fetched = await Promise.all(eventIds.map(fetchEvent));
 
   // Move single event with aggressive retry (up to 15 attempts)
   const moveSingle = async (event, attemptNumber = 1) => {
@@ -1084,23 +1077,223 @@ async function moveEvents(events, quantity, unit) {
   }
 }
 
+//---------------------------------- CREATE EVENTS ----------------------------------
+async function createEvents(events) {
+  if (!checkIfCalendarView()) return;
+  if (!events || events.length === 0) return;
+
+  // Get auth token
+  const authResponse = await chrome.runtime.sendMessage({
+    type: "GET_AUTH_TOKEN",
+  });
+  if (!authResponse.authenticated) {
+    alert("Please sign in first to create events");
+    return;
+  }
+  const token = authResponse.token;
+
+  // overlay
+  const overlay = document.createElement("div");
+  overlay.id = "create-events-overlay";
+  overlay.style.position = "fixed";
+  overlay.style.top = 0;
+  overlay.style.left = 0;
+  overlay.style.width = "100%";
+  overlay.style.height = "100%";
+  overlay.style.background = "rgba(0,0,0,0.5)";
+  overlay.style.display = "flex";
+  overlay.style.justifyContent = "center";
+  overlay.style.alignItems = "center";
+  overlay.style.zIndex = 10000;
+
+  const box = document.createElement("div");
+  box.style.background = "white";
+  box.style.color = "black";
+  box.style.padding = "20px 40px";
+  box.style.borderRadius = "8px";
+  box.style.fontSize = "18px";
+  box.style.fontWeight = "bold";
+  box.textContent = "Creating Events... Please Wait";
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  const updateOverlayText = (text) => (box.textContent = text);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isTransientStatus = (s) => s === 429 || (s >= 500 && s < 600);
+
+  // Create single event with retries
+  const createSingle = async (event, attemptNumber = 1) => {
+    const maxAttempts = 15;
+
+    // Validate start/end
+    const startTime = new Date(
+      event.start?.dateTime || event.start?.date || NaN
+    );
+    const endTime = new Date(event.end?.dateTime || event.end?.date || NaN);
+    if (isNaN(startTime) || isNaN(endTime)) {
+      console.error("Invalid time for event:", event);
+      return { ok: false, event, reason: "invalid_time" };
+    }
+
+    const payload = {
+      summary: event.summary || "Untitled Event",
+      description: event.description || "",
+      start: {
+        dateTime: event.start?.dateTime ? startTime.toISOString() : undefined,
+        date:
+          event.start?.date && !event.start?.dateTime
+            ? startTime.toISOString().split("T")[0]
+            : undefined,
+        timeZone: event.start?.timeZone,
+      },
+      end: {
+        dateTime: event.end?.dateTime ? endTime.toISOString() : undefined,
+        date:
+          event.end?.date && !event.end?.dateTime
+            ? endTime.toISOString().split("T")[0]
+            : undefined,
+        timeZone: event.end?.timeZone,
+      },
+    };
+
+    let delay = 500 * Math.pow(1.5, attemptNumber - 1);
+
+    try {
+      const res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (res.ok) {
+        const createdEvent = await res.json();
+        return { ok: true, event: createdEvent };
+      }
+
+      const responseText = await res.text();
+
+      if (res.status === 403 || res.status === 401) {
+        console.warn("Permission error for event:", event.summary);
+        return { ok: false, event, skipped: true };
+      }
+
+      if (isTransientStatus(res.status)) {
+        console.warn(
+          `Transient error ${res.status} for event ${event.summary}, attempt ${attemptNumber}`
+        );
+        if (attemptNumber < maxAttempts) {
+          await sleep(delay);
+          return createSingle(event, attemptNumber + 1);
+        }
+        return {
+          ok: false,
+          event,
+          reason: "max_retries",
+          status: res.status,
+          response: responseText,
+        };
+      }
+
+      console.error(
+        `Permanent error ${res.status} for event ${event.summary}:`,
+        responseText
+      );
+      return {
+        ok: false,
+        event,
+        reason: "permanent",
+        status: res.status,
+        response: responseText,
+      };
+    } catch (err) {
+      console.warn(
+        `Network error for event ${event.summary}, attempt ${attemptNumber}:`,
+        err
+      );
+      if (attemptNumber < maxAttempts) {
+        await sleep(delay);
+        return createSingle(event, attemptNumber + 1);
+      }
+      return { ok: false, event, reason: "network_max_retries", error: err };
+    }
+  };
+
+  // Process events in batches
+  const BATCH_SIZE = 12;
+  const results = [];
+  let processed = 0;
+
+  for (let i = 0; i < events.length; i += BATCH_SIZE) {
+    const slice = events.slice(i, i + BATCH_SIZE);
+    updateOverlayText(`Creating Events... ${processed}/${events.length}`);
+    const sliceResults = await Promise.all(slice.map(createSingle));
+    results.push(...sliceResults);
+    processed += slice.length;
+  }
+
+  // Remove overlay
+  const existingOverlay = document.getElementById("create-events-overlay");
+  if (existingOverlay) existingOverlay.remove();
+
+  const failures = results.filter((r) => !r.ok && !r.skipped);
+  const successes = results.filter((r) => r.ok);
+  const skipped = results.filter((r) => r.skipped);
+
+  if (failures.length > 0) {
+    const failureList = failures.map((f) => `- ${f.event.summary}`).join("\n");
+    alert(`Failed to create ${failures.length} event(s):\n${failureList}`);
+    console.error("Create failures:", failures);
+  } else if (successes.length > 0) {
+    //successes holds event data for the event BEFORE the time changes, use for UNDO feature
+    successes.forEach((s) => {
+      eventsBeforeMostRecentChange.push(s.event);
+
+      //send message to background to update local storage with eventsToUndo, to persist after reload
+      chrome.runtime.sendMessage({
+        type: "UPDATE_EVENTS_TO_UNDO",
+        eventsToUndo: {
+          events: eventsBeforeMostRecentChange,
+          action: "create", //add type of action for easy undo
+          delta: undefined,
+        },
+      });
+    });
+
+    //reload the page so changes are reflected for user
+    window.location.reload();
+  } else {
+    alert(
+      "No events were created. You may not have permission to create the selected events."
+    );
+  }
+}
+
 //---------------------------------- UNDO LAST ACTION ----------------------------------
 function UndoLastAction() {
   //whether last action was move or delete is stored in each event of eventsToUndo
   const eventsToUndo = window.eventsToUndo;
   console.log(eventsToUndo);
 
-  const wasAMove = eventsToUndo?.action === "move";
-
-  if (wasAMove) {
+  if (eventsToUndo?.action === "move") {
     //we can just calculate time delta and call our moveEventsFunction
-    //reload will get handled in the move function
     //we need to undo, so the time delta should be opposite of sign
     timeDelta = eventsToUndo.delta * -1;
     const idArray = eventsToUndo.events.map((event) => event.id);
     moveEvents(idArray, timeDelta, "minutes");
-  } else {
+  } else if (eventsToUndo?.action === "delete") {
     //was a delete, so we have to POST new events with the old values
+    createEvents(eventsToUndo.events);
+  } else if (eventsToUndo?.action === "create") {
+    //delete events to undo
+
+    const idArray = eventsToUndo?.events.map((e) => e.id);
+    deleteEvents(idArray);
   }
 }
 //---------------------------------- INITIALIZATION ----------------------------------
